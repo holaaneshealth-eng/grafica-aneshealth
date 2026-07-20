@@ -674,3 +674,67 @@ textarea {
   from { opacity: 0; transform: translate(-50%, 8px); }
   to { opacity: 1; transform: translate(-50%, 0); }
 }
+
+
+/* ---------- Login / auth ---------- */
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.login-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 26px 22px calc(22px + var(--safe-b));
+  box-shadow: var(--shadow);
+}
+.login-card h1 {
+  text-align: center;
+  margin: 6px 0 0;
+  font-size: 26px;
+  letter-spacing: 0.3px;
+}
+.login-logo {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 6px;
+}
+.logo-big {
+  width: 54px;
+  height: 54px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 30px;
+  font-weight: 800;
+}
+
+/* ---------- Header user controls ---------- */
+.user-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--text-dim);
+  margin-left: 4px;
+}
+.link-btn {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  min-height: 36px;
+}
+.link-btn:active {
+  transform: scale(0.97);
+}

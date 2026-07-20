@@ -10,3 +10,10 @@ yarn-debug.log*
 yarn-error.log*
 
 *.tsbuildinfo
+
+
+# Datos y secretos (no versionar)
+.env
+data/
+**/data/
+INITIAL_CREDENTIALS.txt
