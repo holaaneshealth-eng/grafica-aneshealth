@@ -1,4 +1,4 @@
-import { db } from "./db";
+import { query } from "./db";
 import type { Role } from "./auth";
 
 export interface UserRow {
@@ -13,6 +13,18 @@ export interface UserRow {
   token_version: number;
   failed_attempts: number;
   locked_until: string | null;
+  last_login: string | null;
+  created_at: string;
+}
+
+export interface AdminUserRow {
+  id: string;
+  username: string;
+  display_name: string;
+  role: Role;
+  location: string | null;
+  active: number;
+  must_change_password: number;
   last_login: string | null;
   created_at: string;
 }
@@ -33,7 +45,7 @@ export interface CaseFull {
 }
 
 export interface EventRow {
-  seq: number;
+  seq: string;
   event_id: string;
   case_id: string;
   type: string;
@@ -47,55 +59,91 @@ export interface EventRow {
   hash: string;
 }
 
+export interface NewUser {
+  id: string;
+  username: string;
+  display_name: string;
+  role: Role;
+  location: string | null;
+  password_hash: string;
+  must_change_password: number;
+  created_at: string;
+}
+
 export const users = {
-  byUsername: db.prepare<[string], UserRow>(`SELECT * FROM users WHERE username = ?`),
-  byId: db.prepare<[string], UserRow>(`SELECT * FROM users WHERE id = ?`),
-  all: db.prepare(`SELECT id, username, display_name, role, location, active, must_change_password, last_login, created_at FROM users ORDER BY role DESC, username`),
-  insert: db.prepare(
-    `INSERT INTO users (id, username, display_name, role, location, password_hash, must_change_password, active, token_version, failed_attempts, created_at)
-     VALUES (@id, @username, @display_name, @role, @location, @password_hash, @must_change_password, 1, 0, 0, @created_at)`,
-  ),
-  setPassword: db.prepare(
-    `UPDATE users SET password_hash = @hash, must_change_password = 0, token_version = token_version + 1 WHERE id = @id`,
-  ),
-  adminResetPassword: db.prepare(
-    `UPDATE users SET password_hash = @hash, must_change_password = 1, token_version = token_version + 1, failed_attempts = 0, locked_until = NULL WHERE id = @id`,
-  ),
-  setActive: db.prepare(`UPDATE users SET active = @active, token_version = token_version + 1 WHERE id = @id`),
-  recordLoginSuccess: db.prepare(
-    `UPDATE users SET failed_attempts = 0, locked_until = NULL, last_login = @at WHERE id = @id`,
-  ),
-  recordLoginFailure: db.prepare(
-    `UPDATE users SET failed_attempts = failed_attempts + 1, locked_until = @lockedUntil WHERE id = @id`,
-  ),
-  count: db.prepare<[], { n: number }>(`SELECT COUNT(*) as n FROM users`),
+  async byUsername(username: string): Promise<UserRow | undefined> {
+    return (await query<UserRow>(`SELECT * FROM users WHERE username=$1`, [username])).rows[0];
+  },
+  async byId(id: string): Promise<UserRow | undefined> {
+    return (await query<UserRow>(`SELECT * FROM users WHERE id=$1`, [id])).rows[0];
+  },
+  async all(): Promise<AdminUserRow[]> {
+    return (
+      await query<AdminUserRow>(
+        `SELECT id, username, display_name, role, location, active, must_change_password, last_login, created_at
+         FROM users ORDER BY role DESC, username`,
+      )
+    ).rows;
+  },
+  async insert(u: NewUser): Promise<void> {
+    await query(
+      `INSERT INTO users (id, username, display_name, role, location, password_hash, must_change_password, active, token_version, failed_attempts, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,1,0,0,$8)`,
+      [u.id, u.username, u.display_name, u.role, u.location, u.password_hash, u.must_change_password, u.created_at],
+    );
+  },
+  async setPassword(id: string, hash: string): Promise<void> {
+    await query(`UPDATE users SET password_hash=$1, must_change_password=0, token_version=token_version+1 WHERE id=$2`, [hash, id]);
+  },
+  async adminResetPassword(id: string, hash: string): Promise<void> {
+    await query(
+      `UPDATE users SET password_hash=$1, must_change_password=1, token_version=token_version+1, failed_attempts=0, locked_until=NULL WHERE id=$2`,
+      [hash, id],
+    );
+  },
+  async setActive(id: string, active: number): Promise<void> {
+    await query(`UPDATE users SET active=$1, token_version=token_version+1 WHERE id=$2`, [active, id]);
+  },
+  async recordLoginSuccess(id: string, at: string): Promise<void> {
+    await query(`UPDATE users SET failed_attempts=0, locked_until=NULL, last_login=$1 WHERE id=$2`, [at, id]);
+  },
+  async recordLoginFailure(id: string, lockedUntil: string | null): Promise<void> {
+    await query(`UPDATE users SET failed_attempts=failed_attempts+1, locked_until=$1 WHERE id=$2`, [lockedUntil, id]);
+  },
+  async count(): Promise<number> {
+    return (await query<{ n: number }>(`SELECT COUNT(*)::int AS n FROM users`)).rows[0].n;
+  },
 };
 
 export const cases = {
-  insert: db.prepare(
-    `INSERT INTO cases (case_id, ia, year, ordinal, owner_user_id, owner_location, status, created_at, last_activity)
-     VALUES (@case_id, @ia, @year, @ordinal, @owner_user_id, @owner_location, 'active', @created_at, @last_activity)`,
-  ),
-  byId: db.prepare<[string], CaseFull>(`SELECT * FROM cases WHERE case_id = ?`),
-  all: db.prepare<[], CaseFull>(`SELECT * FROM cases ORDER BY last_activity DESC`),
-  touch: db.prepare(`UPDATE cases SET last_activity = @at WHERE case_id = @case_id`),
-  setStatus: db.prepare(
-    `UPDATE cases SET status = @status, closed_at = @closed_at, signed_at = @signed_at, signed_by = @signed_by, last_activity = @at WHERE case_id = @case_id`,
-  ),
-  delete: db.prepare(`DELETE FROM cases WHERE case_id = ?`),
-  expired: db.prepare<[string], CaseFull>(`SELECT * FROM cases WHERE last_activity < ?`),
+  async byId(id: string): Promise<CaseFull | undefined> {
+    return (await query<CaseFull>(`SELECT * FROM cases WHERE case_id=$1`, [id])).rows[0];
+  },
+  async all(): Promise<CaseFull[]> {
+    return (await query<CaseFull>(`SELECT * FROM cases ORDER BY last_activity DESC`)).rows;
+  },
+  async touch(caseId: string, at: string): Promise<void> {
+    await query(`UPDATE cases SET last_activity=$1 WHERE case_id=$2`, [at, caseId]);
+  },
+  async delete(id: string): Promise<void> {
+    await query(`DELETE FROM cases WHERE case_id=$1`, [id]);
+  },
+  async expired(cutoff: string): Promise<CaseFull[]> {
+    return (await query<CaseFull>(`SELECT * FROM cases WHERE last_activity < $1`, [cutoff])).rows;
+  },
 };
 
 export const events = {
-  insert: db.prepare(
-    `INSERT INTO events (event_id, case_id, type, occurred_at, recorded_at, actor_user_id, actor_name, payload, corrects_event_id, prev_hash, hash)
-     VALUES (@event_id, @case_id, @type, @occurred_at, @recorded_at, @actor_user_id, @actor_name, @payload, @corrects_event_id, @prev_hash, @hash)`,
-  ),
-  byCase: db.prepare<[string], EventRow>(`SELECT * FROM events WHERE case_id = ? ORDER BY seq ASC`),
-  lastHash: db.prepare<[string], { hash: string }>(`SELECT hash FROM events WHERE case_id = ? ORDER BY seq DESC LIMIT 1`),
-  byEventId: db.prepare<[string], EventRow>(`SELECT * FROM events WHERE event_id = ?`),
+  async byCase(id: string): Promise<EventRow[]> {
+    return (await query<EventRow>(`SELECT * FROM events WHERE case_id=$1 ORDER BY seq ASC`, [id])).rows;
+  },
+  async byEventId(id: string): Promise<EventRow | undefined> {
+    return (await query<EventRow>(`SELECT * FROM events WHERE event_id=$1`, [id])).rows[0];
+  },
 };
 
 export const auditRepo = {
-  recent: db.prepare(`SELECT * FROM audit_log ORDER BY id DESC LIMIT @limit`),
+  async recent(limit: number): Promise<Record<string, unknown>[]> {
+    return (await query(`SELECT * FROM audit_log ORDER BY id DESC LIMIT $1`, [limit])).rows;
+  },
 };

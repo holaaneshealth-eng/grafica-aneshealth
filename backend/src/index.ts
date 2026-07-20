@@ -16,7 +16,7 @@ import { usersRouter } from "./routes/users.routes";
 import { auditRouter } from "./routes/audit.routes";
 
 async function main(): Promise<void> {
-  migrate();
+  await migrate();
   await seedUsers();
   startRetentionJob();
 

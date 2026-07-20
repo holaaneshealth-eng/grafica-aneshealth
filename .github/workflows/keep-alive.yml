@@ -1,0 +1,29 @@
+name: keep-alive
+
+# Mantiene despierta la app en Render (plan gratuito se duerme tras ~15 min de inactividad).
+# Es un respaldo gratuito de UptimeRobot: hace ping al /api/health cada 10 minutos.
+#
+# Configuracion: en el repo, Settings -> Secrets and variables -> Actions -> Variables,
+# crea una variable llamada APP_URL con la URL publica de tu app (sin barra final),
+# por ejemplo: https://aneshealth.onrender.com
+
+on:
+  schedule:
+    - cron: "*/10 * * * *" # cada 10 minutos
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping health endpoint
+        run: |
+          if [ -z "${{ vars.APP_URL }}" ]; then
+            echo "APP_URL no configurada; nada que hacer."
+            exit 0
+          fi
+          echo "Ping a ${{ vars.APP_URL }}/api/health"
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "${{ vars.APP_URL }}/api/health" || echo "000")
+          echo "HTTP $code"
+          # No falla el workflow si la app tarda en despertar.
+          exit 0

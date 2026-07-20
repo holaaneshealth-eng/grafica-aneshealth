@@ -10,8 +10,8 @@ export const usersRouter = Router();
 
 usersRouter.use(authGuard, requireAdmin);
 
-usersRouter.get("/", (_req, res) => {
-  res.json({ users: users.all.all() });
+usersRouter.get("/", async (_req, res) => {
+  res.json({ users: await users.all() });
 });
 
 usersRouter.post("/", csrfGuard, async (req, res) => {
@@ -21,7 +21,7 @@ usersRouter.post("/", csrfGuard, async (req, res) => {
     return;
   }
   const { username, displayName, role, location, password } = parsed.data;
-  if (users.byUsername.get(username)) {
+  if (await users.byUsername(username)) {
     res.status(409).json({ error: "El usuario ya existe" });
     return;
   }
@@ -31,7 +31,7 @@ usersRouter.post("/", csrfGuard, async (req, res) => {
     return;
   }
   const hash = await hashPassword(password);
-  users.insert.run({
+  await users.insert({
     id: newId(),
     username,
     display_name: displayName,
@@ -51,7 +51,7 @@ usersRouter.post("/:id/reset-password", csrfGuard, async (req, res) => {
     res.status(400).json({ error: "Datos invalidos" });
     return;
   }
-  const target = users.byId.get(req.params.id);
+  const target = await users.byId(req.params.id);
   if (!target) {
     res.status(404).json({ error: "Usuario no encontrado" });
     return;
@@ -62,18 +62,18 @@ usersRouter.post("/:id/reset-password", csrfGuard, async (req, res) => {
     return;
   }
   const hash = await hashPassword(parsed.data.password);
-  users.adminResetPassword.run({ id: target.id, hash });
+  await users.adminResetPassword(target.id, hash);
   audit({ userId: req.user!.id, username: req.user!.username, action: "USER_PASSWORD_RESET", targetType: "user", targetId: target.username, ip: req.ip });
   res.json({ ok: true });
 });
 
-usersRouter.post("/:id/active", csrfGuard, (req, res) => {
+usersRouter.post("/:id/active", csrfGuard, async (req, res) => {
   const parsed = setActiveSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Datos invalidos" });
     return;
   }
-  const target = users.byId.get(req.params.id);
+  const target = await users.byId(req.params.id);
   if (!target) {
     res.status(404).json({ error: "Usuario no encontrado" });
     return;
@@ -82,7 +82,7 @@ usersRouter.post("/:id/active", csrfGuard, (req, res) => {
     res.status(400).json({ error: "No se puede desactivar el usuario admin" });
     return;
   }
-  users.setActive.run({ id: target.id, active: parsed.data.active ? 1 : 0 });
+  await users.setActive(target.id, parsed.data.active ? 1 : 0);
   audit({
     userId: req.user!.id,
     username: req.user!.username,

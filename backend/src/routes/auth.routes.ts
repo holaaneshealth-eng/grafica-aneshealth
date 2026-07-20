@@ -36,7 +36,7 @@ authRouter.post("/login", loginLimiter, async (req, res) => {
   }
   const { username, password } = parsed.data;
   const meta = { ip: req.ip, userAgent: req.get("user-agent") };
-  const row = users.byUsername.get(username);
+  const row = await users.byUsername(username);
 
   // Respuesta generica para no revelar si el usuario existe.
   const genericFail = () => {
@@ -62,12 +62,12 @@ authRouter.post("/login", loginLimiter, async (req, res) => {
     const attempts = row.failed_attempts + 1;
     const lockedUntil =
       attempts >= config.maxFailedLogins ? new Date(Date.now() + config.lockoutMinutes * 60000).toISOString() : null;
-    users.recordLoginFailure.run({ id: row.id, lockedUntil });
+    await users.recordLoginFailure(row.id, lockedUntil);
     genericFail();
     return;
   }
 
-  users.recordLoginSuccess.run({ id: row.id, at: new Date().toISOString() });
+  await users.recordLoginSuccess(row.id, new Date().toISOString());
   const token = signToken({ id: row.id, username: row.username, role: row.role, tokenVersion: row.token_version });
   setSessionCookie(res, token);
   const csrf = issueCsrf(res);
@@ -104,7 +104,7 @@ authRouter.post("/change-password", authGuard, async (req, res) => {
     return;
   }
   const { currentPassword, newPassword } = parsed.data;
-  const row = users.byId.get(req.user!.id);
+  const row = await users.byId(req.user!.id);
   if (!row) {
     res.status(404).json({ error: "Usuario no encontrado" });
     return;
@@ -121,7 +121,7 @@ authRouter.post("/change-password", authGuard, async (req, res) => {
     return;
   }
   const hash = await hashPassword(newPassword);
-  users.setPassword.run({ id: row.id, hash });
+  await users.setPassword(row.id, hash);
   clearSessionCookie(res); // invalida la sesion actual (token_version incrementado)
   audit({ userId: row.id, username: row.username, action: "PASSWORD_CHANGED", ip: req.ip });
   res.json({ ok: true });

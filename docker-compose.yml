@@ -1,4 +1,20 @@
+# Ejecucion local completa (app + Postgres) con Docker.
+# En produccion (Render) se usa Neon en lugar de este contenedor de postgres.
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: aneshealth
+    volumes:
+      - aneshealth-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   aneshealth:
     build: .
     ports:
@@ -6,16 +22,16 @@ services:
     environment:
       NODE_ENV: production
       PORT: "8080"
-      DATA_DIR: /data
-      # OBLIGATORIO en produccion: secreto largo y aleatorio (p.ej. `openssl rand -hex 48`)
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/aneshealth
+      # OBLIGATORIO: secreto largo y aleatorio (p.ej. `openssl rand -hex 48`)
       JWT_SECRET: ${JWT_SECRET:?define JWT_SECRET en un archivo .env}
-      # Opcional: contrasenas de seed (si no, se generan y se escriben en /data/INITIAL_CREDENTIALS.txt)
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       CLINICAL_PASSWORD_PREFIX: ${CLINICAL_PASSWORD_PREFIX:-}
       RETENTION_DAYS: ${RETENTION_DAYS:-15}
-    volumes:
-      - aneshealth-data:/data
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
-  aneshealth-data:
+  aneshealth-pg:

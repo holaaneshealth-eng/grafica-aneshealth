@@ -19,7 +19,7 @@ FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 
-# Dependencias de produccion del backend (incluye better-sqlite3 con su binario)
+# Dependencias de produccion del backend (pg es JS puro: sin compilacion nativa)
 COPY backend/package.json backend/package-lock.json ./backend/
 RUN cd backend && npm ci --omit=dev
 

@@ -6,7 +6,7 @@ export const auditRouter = Router();
 
 auditRouter.use(authGuard, requireAdmin);
 
-auditRouter.get("/", (req, res) => {
+auditRouter.get("/", async (req, res) => {
   const limit = Math.min(parseInt(String(req.query.limit ?? "200"), 10) || 200, 1000);
-  res.json({ entries: auditRepo.recent.all({ limit }) });
+  res.json({ entries: await auditRepo.recent(limit) });
 });

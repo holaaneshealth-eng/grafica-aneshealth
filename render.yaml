@@ -1,28 +1,29 @@
-# Blueprint de despliegue para Render.com (https://render.com)
-# Sube el repo a GitHub, entra en Render > New > Blueprint y selecciona este repo.
+# Blueprint de despliegue GRATUITO en Render.com (https://render.com)
+# Base de datos: Neon (Postgres gratis y persistente) -> se configura DATABASE_URL.
+# Pasos:
+#   1) Crea una base de datos gratis en https://neon.tech y copia su "connection string".
+#   2) Sube este repo a GitHub.
+#   3) En Render: New -> Blueprint -> selecciona el repo.
+#   4) Cuando pida DATABASE_URL, pega la cadena de conexion de Neon (con ?sslmode=require).
 services:
   - type: web
     name: aneshealth
     runtime: docker
-    plan: starter
+    plan: free
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
-      - key: DATA_DIR
-        value: /data
+      # Cadena de conexion de Neon (Postgres). NO la publiques en el repo.
+      - key: DATABASE_URL
+        sync: false
       # Render genera un secreto seguro automaticamente.
       - key: JWT_SECRET
         generateValue: true
-      # Define estas en el panel de Render (opcional). Si se dejan vacias, se generan
-      # contrasenas aleatorias y quedan en /data/INITIAL_CREDENTIALS.txt.
+      # Opcional: contrasenas de seed. Si se dejan vacias, se generan y aparecen en los Logs.
       - key: ADMIN_PASSWORD
         sync: false
       - key: CLINICAL_PASSWORD_PREFIX
         sync: false
       - key: RETENTION_DAYS
         value: "15"
-    disk:
-      name: aneshealth-data
-      mountPath: /data
-      sizeGB: 1

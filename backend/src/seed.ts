@@ -24,14 +24,14 @@ function buildSpecs(): SeedSpec[] {
 
 /** Crea los usuarios iniciales si la base de datos esta vacia. */
 export async function seedUsers(): Promise<void> {
-  const { n } = users.count.get() as { n: number };
-  if (n > 0) return;
+  if ((await users.count()) > 0) return;
 
   const specs = buildSpecs();
   const lines: string[] = [];
+  const generated: string[] = [];
   lines.push("CREDENCIALES INICIALES - AnesHealth");
   lines.push("Generadas: " + new Date().toISOString());
-  lines.push("IMPORTANTE: cambia estas contrasenas en el primer inicio de sesion. Este archivo NO se versiona.");
+  lines.push("IMPORTANTE: cambia estas contrasenas en el primer inicio de sesion.");
   lines.push("");
 
   for (const s of specs) {
@@ -46,10 +46,11 @@ export async function seedUsers(): Promise<void> {
     } else {
       plain = generatePassword();
       mustChange = true;
+      generated.push(`${s.username.padEnd(14)} | ${plain}`);
     }
 
     const hash = await hashPassword(plain);
-    users.insert.run({
+    await users.insert({
       id: newId(),
       username: s.username,
       display_name: s.displayName,
@@ -62,12 +63,19 @@ export async function seedUsers(): Promise<void> {
     lines.push(`${s.username.padEnd(14)} | ${s.role.padEnd(8)} | ${plain}`);
   }
 
-  fs.writeFileSync(config.credentialsFile, lines.join("\n") + "\n", { mode: 0o600 });
+  try {
+    fs.writeFileSync(config.credentialsFile, lines.join("\n") + "\n", { mode: 0o600 });
+  } catch {
+    /* el sistema de archivos puede ser efimero (p.ej. Render); no es critico */
+  }
   audit({ action: "SEED_USERS", detail: `Creados ${specs.length} usuarios`, targetType: "users" });
 
   // eslint-disable-next-line no-console
-  console.log(
-    `\n[seed] Se crearon ${specs.length} usuarios. Credenciales iniciales escritas en:\n  ${config.credentialsFile}\n` +
-      `[seed] Cambia las contrasenas en el primer login.\n`,
-  );
+  console.log(`\n[seed] Se crearon ${specs.length} usuarios.`);
+  if (generated.length > 0) {
+    // Se imprimen SOLO las contrasenas generadas automaticamente (para poder recuperarlas
+    // desde los logs del hosting). Cambialas cuanto antes.
+    // eslint-disable-next-line no-console
+    console.log("[seed] Contrasenas generadas (cambialas en el primer login):\n" + generated.join("\n") + "\n");
+  }
 }

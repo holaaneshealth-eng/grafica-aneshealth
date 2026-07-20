@@ -29,6 +29,12 @@ if (!jwtSecret) {
 const dataDir = process.env.DATA_DIR ?? path.join(process.cwd(), "data");
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
+// Base de datos Postgres (Neon). Obligatoria en produccion.
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl && isProd) {
+  throw new Error("DATABASE_URL es obligatorio en produccion (cadena de conexion de Neon/Postgres).");
+}
+
 export const config = {
   isProd,
   port: parseInt(process.env.PORT ?? "8080", 10),
@@ -40,7 +46,7 @@ export const config = {
   cookieName: "ah_session",
   csrfCookieName: "ah_csrf",
   dataDir,
-  dbFile: path.join(dataDir, "aneshealth.db"),
+  databaseUrl: databaseUrl ?? "postgresql://postgres:postgres@localhost:5432/aneshealth",
   credentialsFile: path.join(dataDir, "INITIAL_CREDENTIALS.txt"),
   // Origen permitido para CORS. Por defecto mismo-origen (frontend servido por el backend).
   corsOrigin: process.env.CORS_ORIGIN ?? "",

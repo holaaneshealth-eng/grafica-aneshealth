@@ -6,33 +6,37 @@ import { users } from "./repo";
 import { audit } from "./db";
 
 /** Verifica la sesion (cookie httpOnly con JWT) y adjunta req.user. */
-export function authGuard(req: Request, res: Response, next: NextFunction): void {
-  const token = req.cookies?.[config.cookieName];
-  if (!token) {
-    res.status(401).json({ error: "No autenticado" });
-    return;
+export async function authGuard(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const token = req.cookies?.[config.cookieName];
+    if (!token) {
+      res.status(401).json({ error: "No autenticado" });
+      return;
+    }
+    const payload = verifyToken(token);
+    if (!payload) {
+      res.status(401).json({ error: "Sesion invalida o expirada" });
+      return;
+    }
+    const row = await users.byId(payload.sub);
+    if (!row || row.active !== 1 || row.token_version !== payload.tv) {
+      res.status(401).json({ error: "Sesion revocada" });
+      return;
+    }
+    const user: AuthUser = {
+      id: row.id,
+      username: row.username,
+      displayName: row.display_name,
+      role: row.role,
+      location: row.location,
+      tokenVersion: row.token_version,
+      mustChangePassword: row.must_change_password === 1,
+    };
+    req.user = user;
+    next();
+  } catch (err) {
+    next(err);
   }
-  const payload = verifyToken(token);
-  if (!payload) {
-    res.status(401).json({ error: "Sesion invalida o expirada" });
-    return;
-  }
-  const row = users.byId.get(payload.sub);
-  if (!row || row.active !== 1 || row.token_version !== payload.tv) {
-    res.status(401).json({ error: "Sesion revocada" });
-    return;
-  }
-  const user: AuthUser = {
-    id: row.id,
-    username: row.username,
-    displayName: row.display_name,
-    role: row.role,
-    location: row.location,
-    tokenVersion: row.token_version,
-    mustChangePassword: row.must_change_password === 1,
-  };
-  req.user = user;
-  next();
 }
 
 /** Proteccion CSRF (double-submit) para metodos que mutan estado. */
