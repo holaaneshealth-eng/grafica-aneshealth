@@ -17,6 +17,34 @@ export interface SyncItem {
   status: "pending" | "synced";
 }
 
+// Politica de retencion: los casos se autoborran pasados N dias desde su ultima actividad.
+export const RETENTION_DAYS = 15;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export interface PurgeEntry {
+  ia: string;
+  purgedAt: string;
+}
+
+/** Ultima actividad de un caso = timestamp mas reciente de registro entre sus eventos. */
+export function caseLastActivity(events: BaseEvent[], caseId: string): number {
+  let t = 0;
+  for (const e of events) {
+    if (e.caseId !== caseId) continue;
+    const rt = new Date(e.recordedAt).getTime();
+    if (rt > t) t = rt;
+  }
+  return t;
+}
+
+/** Dias que faltan para el autoborrado de un caso (puede ser <= 0 si ya vencio). */
+export function daysUntilPurge(events: BaseEvent[], caseId: string): number {
+  const last = caseLastActivity(events, caseId);
+  if (last === 0) return RETENTION_DAYS;
+  const expiresAt = last + RETENTION_DAYS * DAY_MS;
+  return Math.ceil((expiresAt - Date.now()) / DAY_MS);
+}
+
 interface AppState {
   events: BaseEvent[];
   activeCaseId: string | null;
@@ -24,12 +52,15 @@ interface AppState {
   lastOrdinalByYear: Record<number, number>;
   online: boolean;
   syncQueue: SyncItem[];
+  purgeLog: PurgeEntry[];
 
   // acciones
   setActor: (name: string) => void;
   setOnline: (v: boolean) => void;
   createCase: () => string;
   setActiveCase: (id: string | null) => void;
+  purgeExpired: () => number;
+  deleteCase: (id: string) => void;
   append: (
     caseId: string,
     type: EventType,
@@ -54,9 +85,53 @@ export const useStore = create<AppState>()(
       lastOrdinalByYear: {},
       online: typeof navigator !== "undefined" ? navigator.onLine : true,
       syncQueue: [],
+      purgeLog: [],
 
       setActor: (name) => set({ actor: name || "Anestesista" }),
       setOnline: (v) => set({ online: v }),
+
+      // Autoborrado: elimina los casos cuya ultima actividad supera RETENTION_DAYS.
+      // Devuelve el numero de casos borrados y deja constancia en purgeLog (auditoria).
+      purgeExpired: () => {
+        const s = get();
+        const now = Date.now();
+        const ids = Array.from(new Set(s.events.map((e) => e.caseId)));
+        const expired = ids.filter((id) => now - caseLastActivity(s.events, id) > RETENTION_DAYS * DAY_MS);
+        if (expired.length === 0) return 0;
+
+        const expiredSet = new Set(expired);
+        const newLog: PurgeEntry[] = [];
+        for (const id of expired) {
+          const created = s.events.find((e) => e.caseId === id && e.type === "CASE_CREATED");
+          const ia = (created?.payload.ia as string) ?? id;
+          newLog.push({ ia, purgedAt: new Date().toISOString() });
+        }
+
+        const remaining = s.events.filter((e) => !expiredSet.has(e.caseId));
+        const remainingIds = new Set(remaining.map((e) => e.eventId));
+        set({
+          events: remaining,
+          activeCaseId: s.activeCaseId && expiredSet.has(s.activeCaseId) ? null : s.activeCaseId,
+          syncQueue: s.syncQueue.filter((q) => remainingIds.has(q.eventId)),
+          purgeLog: [...s.purgeLog, ...newLog].slice(-200),
+        });
+        return expired.length;
+      },
+
+      // Borrado manual de un caso concreto (tambien queda en la auditoria de borrados).
+      deleteCase: (id) => {
+        const s = get();
+        const created = s.events.find((e) => e.caseId === id && e.type === "CASE_CREATED");
+        const ia = (created?.payload.ia as string) ?? id;
+        const remaining = s.events.filter((e) => e.caseId !== id);
+        const remainingIds = new Set(remaining.map((e) => e.eventId));
+        set({
+          events: remaining,
+          activeCaseId: s.activeCaseId === id ? null : s.activeCaseId,
+          syncQueue: s.syncQueue.filter((q) => remainingIds.has(q.eventId)),
+          purgeLog: [...s.purgeLog, { ia, purgedAt: new Date().toISOString() }].slice(-200),
+        });
+      },
 
       createCase: () => {
         const now = new Date();
@@ -139,6 +214,7 @@ export const useStore = create<AppState>()(
         actor: s.actor,
         lastOrdinalByYear: s.lastOrdinalByYear,
         syncQueue: s.syncQueue,
+        purgeLog: s.purgeLog,
       }),
     },
   ),

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useStore, flushSyncQueue } from "./store/store";
+import { useStore, flushSyncQueue, RETENTION_DAYS } from "./store/store";
 import { Home } from "./screens/Home";
 import { Phase1, phase1Complete } from "./screens/Phase1";
 import { Phase2, phase2Ready } from "./screens/Phase2";
@@ -18,6 +18,7 @@ export default function App() {
   const online = useStore((s) => s.online);
   const setOnline = useStore((s) => s.setOnline);
   const pending = useStore((s) => s.syncQueue.filter((q) => q.status === "pending").length);
+  const purgeExpired = useStore((s) => s.purgeExpired);
 
   // Suscripcion reactiva al estado del caso activo.
   const events = useStore((s) => s.events);
@@ -32,6 +33,15 @@ export default function App() {
     const t = setInterval(() => setClock(new Date().toISOString()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  // Autoborrado de pacientes: al abrir y cada hora, purga los casos que superen la retencion.
+  useEffect(() => {
+    const removed = purgeExpired();
+    if (removed > 0) showToast(`${removed} paciente(s) eliminado(s) por retencion (${RETENTION_DAYS} dias)`);
+    const iv = setInterval(() => purgeExpired(), 60 * 60 * 1000);
+    return () => clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [purgeExpired]);
 
   useEffect(() => {
     const on = () => {

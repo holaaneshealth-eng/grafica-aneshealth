@@ -27,6 +27,11 @@ rápida, con mínima carga cognitiva, usable con una sola mano y con máxima seg
 - **Barra de acciones permanente** en la "thumb zone" (Fármaco / Constantes / Incidencia).
 - **Cierre**: hoja anestésica en **PDF** e **imagen** A4 vertical, impresión directa,
   envío por email y **firma electrónica**.
+- **Multipaciente**: varios procedimientos abiertos a la vez, con lista de "En curso" y
+  "Cerrados".
+- **Autoborrado (retención de datos, RGPD)**: cada paciente se elimina automáticamente
+  **15 días** después de su última actividad. Se muestra una cuenta atrás por paciente y
+  se conserva un registro de auditoría de los borrados (solo el IA pseudonimizado y la fecha).
 - **Seguridad clínica extra**: aviso de alergia cruzada y alertas de rango.
 
 ## Requisitos y ejecución
