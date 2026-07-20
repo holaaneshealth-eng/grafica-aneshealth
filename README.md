@@ -1,70 +1,104 @@
-# AnesHealth — Hoja Anestésica Digital
+# AnesHealth — Hoja Anestésica Digital (full-stack, segura)
 
-Aplicación web **responsive** (móvil, iPad, tablet Android y PC con el mismo código)
-para el registro digital de la hoja anestésica, pensada para uso real en quirófano:
-rápida, con mínima carga cognitiva, usable con una sola mano y con máxima seguridad clínica.
+Aplicación web **responsive** (móvil, iPad, tablet Android y PC) para el registro digital
+de la hoja anestésica, con **backend seguro**, autenticación, **roles y permisos (RBAC)**,
+y endurecimiento frente a ataques. Pensada para uso real en quirófano.
 
-> Diseño completo del producto y la arquitectura en [`docs/DISENO.md`](docs/DISENO.md).
+> Diseño de producto y arquitectura clínica: [`docs/DISENO.md`](docs/DISENO.md).
 
-## Características principales
+## Arquitectura
 
-- **Identificador Anestésico (IA)** automático `AA-NNNNNN-C` con dígito de control
-  (validable offline) — pseudonimización por defecto (RGPD).
-- **Arquitectura orientada a eventos** (event sourcing): la hoja se reconstruye a partir
-  de un log inmutable de eventos con hora exacta → autosave, offline y auditoría nativos.
-- **Flujo por fases bloqueantes**: Preparación → Quirófano → Cierre. No se avanza sin
-  completar la fase anterior. "No" es una respuesta válida y explícita.
-- **Fase 1**: alergias, talla, peso, antecedentes y medicación (autosave con debounce).
-- **Fase 2**:
-  - Checklist de seguridad (monitor, respirador, aspirador, Ambu).
-  - Selección de parámetros de monitorización + monitorización adicional libre (BIS, ETE…).
-  - Técnicas anestésicas (multiselección) con campos específicos por técnica.
-  - **Administrar fármaco** (bolus / perfusión) con cálculo automático de concentración
-    y dosis ponderada, conservando doble representación (`12 ml/h / 0,08 mcg/kg/min`).
-  - Registro seriado de constantes con teclado numérico y validación de rango (soft-stop).
-  - Gráficas de tendencias en tiempo real.
-  - Registro de incidencias con timestamp.
-- **Barra de acciones permanente** en la "thumb zone" (Fármaco / Constantes / Incidencia).
-- **Cierre**: hoja anestésica en **PDF** e **imagen** A4 vertical, impresión directa,
-  envío por email y **firma electrónica**.
-- **Multipaciente**: varios procedimientos abiertos a la vez, con lista de "En curso" y
-  "Cerrados".
-- **Autoborrado (retención de datos, RGPD)**: cada paciente se elimina automáticamente
-  **15 días** después de su última actividad. Se muestra una cuenta atrás por paciente y
-  se conserva un registro de auditoría de los borrados (solo el IA pseudonimizado y la fecha).
-- **Seguridad clínica extra**: aviso de alergia cruzada y alertas de rango.
+Monorepo con dos partes que se despliegan como **un único contenedor**:
 
-## Requisitos y ejecución
+```
+grafica-aneshealth/
+  frontend/   # SPA React + TypeScript + Vite (UI de quirófano)
+  backend/    # API Node.js + Express + SQLite (fuente de verdad, seguridad)
+  Dockerfile  # build multi-stage: compila frontend y backend en 1 imagen
+  render.yaml # blueprint de despliegue en Render.com
+```
+
+El backend sirve la API bajo `/api/*` **y** el frontend compilado (mismo origen),
+lo que simplifica el despliegue y refuerza la seguridad (cookies same-origin).
+
+- **Modelo orientado a eventos** (event sourcing): la hoja se reconstruye desde un log
+  inmutable de eventos con hora exacta y **cadena de hash** (anti-manipulación).
+- **IA** (Identificador Anestésico) generado de forma **atómica en el servidor**.
+- **Autoborrado** de pacientes a los **15 días** (retención RGPD), ejecutado por el backend.
+
+## Usuarios y permisos
+
+Al primer arranque se crean 13 usuarios:
+
+| Usuario | Rol | Permisos |
+|---|---|---|
+| `admin` | Administrador | **Control total**: gestionar usuarios, ver auditoría, leer/escribir/anular cualquier caso, borrar. |
+| `quirofano1` … `quirofano10` | Clínico | Escritura **solo en su propio paciente activo**; **lectura de todos** los casos; **no** puede modificar/anular registros ni gestionar usuarios. |
+| `partos` | Clínico | Igual que quirófano. |
+| `endoscopias` | Clínico | Igual que quirófano. |
+
+**Contraseñas iniciales**: si no defines `ADMIN_PASSWORD` / `CLINICAL_PASSWORD_PREFIX`,
+el servidor genera contraseñas aleatorias y las escribe en
+`DATA_DIR/INITIAL_CREDENTIALS.txt` (no se versiona), forzando el cambio en el primer login.
+
+## Medidas de seguridad aplicadas
+
+- **Contraseñas** con hash **bcrypt** (coste configurable) — nunca en claro.
+- **Sesión JWT** en cookie **httpOnly + Secure + SameSite=Strict** (no accesible por JS → mitiga XSS).
+- **CSRF**: patrón double-submit (cookie + cabecera `X-CSRF-Token`) en toda mutación.
+- **RBAC** verificado en el servidor por cada operación (no se confía en el cliente).
+- **Bloqueo de cuenta** tras varios intentos fallidos + **rate limiting** (global y de login).
+- **Cabeceras de seguridad** con Helmet: CSP estricta, HSTS, `nosniff`, `frameAncestors 'none'`, sin `X-Powered-By`.
+- **Validación de entrada** con Zod en todos los endpoints; límite de tamaño de cuerpo.
+- **Auditoría** completa (login, accesos denegados, altas, cambios, borrados) con IP y user-agent.
+- **Pseudonimización**: la hoja solo maneja el IA; sin datos personales directos.
+- **Cierre de sesión por inactividad** (cliente) y **revocación de sesiones** al cambiar contraseña.
+- **Integridad**: cadena de hash SHA-256 encadenada por caso.
+
+## Ejecución en local (desarrollo)
+
+Necesitas Node.js 20+ en dos terminales:
 
 ```bash
-npm install     # instalar dependencias
-npm run dev     # servidor de desarrollo (http://localhost:5173)
-npm run build   # build de producción (typecheck + Vite) -> carpeta dist/
-npm run preview # previsualizar el build
+# Terminal 1 — backend (http://localhost:8080)
+cd backend
+cp .env.example .env        # y define JWT_SECRET
+npm install
+npm run dev
+
+# Terminal 2 — frontend (http://localhost:5173, con proxy /api al backend)
+cd frontend
+npm install
+npm run dev
 ```
+
+Las credenciales iniciales aparecen en la consola del backend y en `backend/data/INITIAL_CREDENTIALS.txt`.
+
+## Despliegue en internet (recomendado: Docker)
+
+### Opción A — Render.com (más sencillo, incluye blueprint)
+
+1. Sube este repositorio a GitHub.
+2. En Render: **New → Blueprint** y selecciona el repo (usa `render.yaml`).
+3. Render construye la imagen, genera `JWT_SECRET`, crea un disco persistente en `/data`
+   y publica una URL HTTPS.
+4. Entra con `admin` (contraseña en Logs → `INITIAL_CREDENTIALS.txt`, o define `ADMIN_PASSWORD`).
+
+### Opción B — Docker en cualquier servidor
+
+```bash
+# Genera un secreto y arranca
+echo "JWT_SECRET=$(openssl rand -hex 48)" > .env
+docker compose up -d --build
+# App en http://localhost:8080  (pon un proxy HTTPS delante, p.ej. Caddy/Nginx)
+```
+
+Los datos (SQLite + credenciales) persisten en el volumen `aneshealth-data` (`/data`).
+
+> **Importante para producción**: sirve siempre por **HTTPS** (las cookies Secure lo requieren).
+> Render lo hace automáticamente; en un servidor propio, pon un proxy TLS delante.
 
 ## Pila tecnológica
 
-- **React 18 + TypeScript + Vite**
-- **Zustand** (con persistencia en `localStorage` = autosave + offline)
-- **Recharts** (gráficas de tendencias)
-- **jsPDF + html2canvas** (generación de PDF/imagen A4)
-
-## Estructura
-
-```
-src/
-  domain/        # lógica clínica: IA, cálculos, catálogos (fármacos, monitorización, técnicas)
-  store/         # event store + proyecciones (event sourcing)
-  components/    # UI reutilizable (modales, gráficas, toggles)
-  screens/       # Home, Fase 1, Fase 2, Cierre
-  utils/         # helpers de tiempo
-```
-
-## Notas
-
-- Es un producto en evolución. La persistencia actual es local (offline-first). La
-  sincronización con backend, la integración HL7/FHIR con monitores y la firma
-  cualificada (eIDAS) están diseñadas y preparadas en la arquitectura (ver `docs/DISENO.md`).
-- Los datos clínicos se registran bajo el IA (pseudónimo); la correspondencia con la
-  identidad real debe gestionarse en un servicio separado.
+- **Frontend**: React 18, TypeScript, Vite, Zustand, Recharts, jsPDF + html2canvas.
+- **Backend**: Node.js, Express, better-sqlite3, bcryptjs, jsonwebtoken, Helmet, Zod.

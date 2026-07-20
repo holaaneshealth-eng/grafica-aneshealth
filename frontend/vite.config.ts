@@ -5,6 +5,15 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
   base: "./",
+  server: {
+    // En desarrollo, el frontend (5173) reenvia /api al backend (8080).
+    proxy: {
+      "/api": {
+        target: "http://localhost:8080",
+        changeOrigin: true,
+      },
+    },
+  },
   build: {
     outDir: "dist",
     sourcemap: false,

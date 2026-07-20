@@ -11,9 +11,10 @@ import { formatNum } from "../domain/calculations";
 interface Props {
   cs: CaseState;
   onToast: (m: string) => void;
+  canSign: boolean;
 }
 
-export function Summary({ cs, onToast }: Props) {
+export function Summary({ cs, onToast, canSign }: Props) {
   const sheetRef = useRef<HTMLDivElement>(null);
   const append = useStore((s) => s.append);
   const getTimeline = useStore((s) => s.getTimeline);
@@ -71,7 +72,7 @@ export function Summary({ cs, onToast }: Props) {
   }
 
   function sign() {
-    const who = useStore.getState().actor;
+    const who = useStore.getState().user?.displayName ?? "";
     append(cs.caseId, "CASE_SIGNED", { signedBy: who });
     onToast("Hoja firmada por " + who);
   }
@@ -101,13 +102,17 @@ export function Summary({ cs, onToast }: Props) {
             Enviar por email
           </button>
         </div>
-        {!cs.signedAt ? (
+        {cs.signedAt ? (
+          <div className="alert" style={{ marginTop: 12 }}>
+            Firmada por {cs.signedBy} el {dmy(cs.signedAt)} a las {hhmm(cs.signedAt)}.
+          </div>
+        ) : canSign ? (
           <button className="btn primary block lg" style={{ marginTop: 12 }} onClick={sign}>
             Firmar hoja (firma electronica)
           </button>
         ) : (
           <div className="alert" style={{ marginTop: 12 }}>
-            Firmada por {cs.signedBy} el {dmy(cs.signedAt)} a las {hhmm(cs.signedAt)}.
+            Solo el anestesista responsable puede firmar esta hoja.
           </div>
         )}
       </div>
