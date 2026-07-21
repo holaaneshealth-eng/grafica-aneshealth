@@ -15,6 +15,12 @@ import { casesRouter } from "./routes/cases.routes";
 import { usersRouter } from "./routes/users.routes";
 import { auditRouter } from "./routes/audit.routes";
 
+// Red de seguridad: registrar (no matar el proceso) ante promesas rechazadas sin capturar.
+process.on("unhandledRejection", (reason) => {
+  // eslint-disable-next-line no-console
+  console.error("[proc] unhandledRejection (ignorado para mantener el servicio vivo):", reason);
+});
+
 async function main(): Promise<void> {
   await migrate();
   await seedUsers();

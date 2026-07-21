@@ -9,14 +9,47 @@ export const pool = new Pool({
   ssl: isLocal ? false : { rejectUnauthorized: false },
   max: 10,
   idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 15000,
+  keepAlive: true,
 });
+
+// CRÍTICO: sin este manejador, un error en una conexión inactiva (p.ej. cuando Neon
+// suspende la base de datos por inactividad y cierra las conexiones) provoca un error
+// no capturado que TUMBA el proceso (exit 1). Con el manejador, el pool descarta esa
+// conexión y el servicio sigue vivo.
+pool.on("error", (err) => {
+  // eslint-disable-next-line no-console
+  console.error("[db] conexión inactiva del pool con error (recuperable):", err.message);
+});
+
+function isTransient(err: unknown): boolean {
+  const msg = (err as { message?: string })?.message ?? "";
+  const code = (err as { code?: string })?.code ?? "";
+  return (
+    /terminat|connection|ECONNRESET|ETIMEDOUT|ENOTFOUND|EPIPE|server closed|Connection terminated/i.test(msg) ||
+    ["57P01", "57P02", "57P03", "08006", "08003", "08000", "ECONNRESET", "ETIMEDOUT"].includes(code)
+  );
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function query<T extends QueryResultRow = QueryResultRow>(
   text: string,
   params: unknown[] = [],
 ): Promise<{ rows: T[]; rowCount: number }> {
-  const res = await pool.query<T>(text, params as never[]);
-  return { rows: res.rows, rowCount: res.rowCount ?? 0 };
+  // Reintento suave: Neon puede tardar en "despertar" tras suspenderse.
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await pool.query<T>(text, params as never[]);
+      return { rows: res.rows, rowCount: res.rowCount ?? 0 };
+    } catch (err) {
+      lastErr = err;
+      if (!isTransient(err) || attempt === 2) break;
+      await sleep(500 * (attempt + 1));
+    }
+  }
+  throw lastErr;
 }
 
 /** Ejecuta una funcion dentro de una transaccion (BEGIN/COMMIT/ROLLBACK). */
@@ -28,7 +61,11 @@ export async function withTransaction<T>(fn: (client: PoolClient) => Promise<T>)
     await client.query("COMMIT");
     return result;
   } catch (err) {
-    await client.query("ROLLBACK");
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      /* la conexión puede estar rota; se ignora */
+    }
     throw err;
   } finally {
     client.release();
