@@ -24,11 +24,11 @@ export function Home({ onOpen, onToast }: Props) {
     const id = await createCase();
     setCreating(false);
     if (id) onOpen(id);
-    else onToast("No se pudo crear el caso (necesitas conexion)");
+    else onToast("No se pudo crear el caso (necesitas conexión)");
   }
 
   async function confirmDelete(c: ApiCase) {
-    if (window.confirm(`Eliminar el paciente ${c.ia}? Esta accion no se puede deshacer.`)) {
+    if (window.confirm(`¿Eliminar el paciente ${c.ia}? Esta acción no se puede deshacer.`)) {
       try {
         await deleteCase(c.caseId);
         onToast("Paciente eliminado");
@@ -55,7 +55,7 @@ export function Home({ onOpen, onToast }: Props) {
             {mine ? " - (tuyo)" : ""}
           </div>
           <div className="sub" style={{ margin: "2px 0 0", color: soon ? "var(--warn)" : "var(--text-dim)" }}>
-            Autoborrado en {Math.max(0, days)} dia{days === 1 ? "" : "s"}
+            Autoborrado en {Math.max(0, days)} día{days === 1 ? "" : "s"}
           </div>
         </div>
         <span className={`tag ${c.status === "active" ? "active" : "closed"}`}>
@@ -81,7 +81,7 @@ export function Home({ onOpen, onToast }: Props) {
         {creating ? "Creando..." : "+ Nuevo procedimiento"}
       </button>
       <p className="sub" style={{ textAlign: "center", marginTop: 8 }}>
-        Se generara automaticamente un Identificador Anestesico (IA). Puedes tener varios pacientes en curso a la vez.
+        Se generará automáticamente un Identificador Anestésico (IA). Puedes tener varios pacientes en curso a la vez.
       </p>
 
       {active.length > 0 && (
@@ -94,14 +94,14 @@ export function Home({ onOpen, onToast }: Props) {
       )}
 
       <div className="section-title">Cerrados{closed.length > 0 ? ` (${closed.length})` : ""}</div>
-      {closed.length === 0 && active.length === 0 && <div className="empty">No hay procedimientos todavia.</div>}
+      {closed.length === 0 && active.length === 0 && <div className="empty">No hay procedimientos todavía.</div>}
       {closed.map((c) => (
         <CaseRow key={c.caseId} c={c} />
       ))}
 
       <div className="alert" style={{ marginTop: 18 }}>
-        Puedes consultar todos los casos, pero solo puedes registrar en el paciente que estas atendiendo. Los pacientes
-        se eliminan automaticamente {RETENTION_DAYS} dias despues de su ultima actividad (RGPD).
+        Puedes consultar todos los casos, pero solo puedes registrar en el paciente que estás atendiendo. Los pacientes
+        se eliminan automáticamente {RETENTION_DAYS} días después de su última actividad (RGPD).
       </div>
     </div>
   );

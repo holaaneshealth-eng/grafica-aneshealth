@@ -25,6 +25,8 @@ export const APPENDABLE_EVENT_TYPES = [
   "WEIGHT_UPDATED",
   "MILESTONE",
   "INCIDENT",
+  "BLOOD_PRODUCT",
+  "LAB_RESULT",
   "SURGERY_ENDED",
   "CASE_SIGNED",
 ] as const;

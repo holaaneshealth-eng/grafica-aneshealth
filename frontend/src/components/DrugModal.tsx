@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
 import { Modal } from "./Modal";
+import { TimeField } from "./TimeField";
 import { DRUGS, DRUG_UNITS, drugByName } from "../domain/drugs";
 import { computeInfusion, formatNum, type DoseRateUnit, type MassUnit } from "../domain/calculations";
 import { useStore } from "../store/store";
 import type { CaseState } from "../domain/events";
+import { nowLocalInput, isoFromLocalInput } from "../utils/time";
 
 interface Props {
   cs: CaseState;
@@ -17,12 +19,13 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
   const append = useStore((s) => s.append);
   const [mode, setMode] = useState<"bolus" | "infusion">("bolus");
   const [drug, setDrug] = useState("");
+  const [time, setTime] = useState(nowLocalInput());
 
   // Bolus
   const [dose, setDose] = useState("");
   const [unit, setUnit] = useState("mg");
 
-  // Infusion
+  // Perfusión
   const [amount, setAmount] = useState("");
   const [amountUnit, setAmountUnit] = useState<MassUnit>("mg");
   const [diluent, setDiluent] = useState("");
@@ -30,9 +33,14 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
   const [doseUnit, setDoseUnit] = useState<DoseRateUnit>("mcg/kg/min");
   const [weight, setWeight] = useState(cs.preop.weightKg ? String(cs.preop.weightKg) : "");
 
-  const def = drugByName(drug);
+  // Gas anestésico (sevoflurano): solo % en aire espirado
+  const [gasPercent, setGasPercent] = useState("");
 
-  // Comprobacion de alergia cruzada frente a lo registrado en Fase 1.
+  const def = drugByName(drug);
+  const isGas = !!def?.gas;
+  const isPropofol = drug.trim().toLowerCase() === "propofol";
+
+  // Comprobación de alergia cruzada frente a lo registrado en Fase 1.
   const allergyHit = useMemo(() => {
     const a = cs.preop.allergies.trim().toLowerCase();
     const d = drug.trim().toLowerCase();
@@ -47,6 +55,7 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
       setUnit(d.defaultUnit);
       if (d.defaultUnit === "mg" || d.defaultUnit === "mcg") setAmountUnit(d.defaultUnit as MassUnit);
       if (d.infusionDoseUnit) setDoseUnit(d.infusionDoseUnit as DoseRateUnit);
+      if (d.gas) setMode("infusion"); // los gases solo se registran como perfusión
     }
   }
 
@@ -66,59 +75,106 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
     });
   }, [amount, diluent, rate, weight, amountUnit, doseUnit]);
 
+  // Para propofol mostramos también mg/kg/h además de la unidad elegida.
+  const propofolMgKgH = useMemo(() => {
+    if (!isPropofol) return null;
+    const a = parseFloat(amount.replace(",", "."));
+    const v = parseFloat(diluent.replace(",", "."));
+    const r = parseFloat(rate.replace(",", "."));
+    const w = parseFloat(weight.replace(",", "."));
+    if (!a || !v || !w || !r) return null;
+    return computeInfusion({ amount: a, amountUnit, diluentVolumeMl: v, rateMlH: r, weightKg: w, doseUnit: "mg/kg/h" });
+  }, [isPropofol, amount, diluent, rate, weight, amountUnit]);
+
   function saveBolus() {
     const d = parseFloat(dose.replace(",", "."));
     if (!drug || !d) return;
-    append(cs.caseId, "DRUG_BOLUS", {
-      id: rid(),
-      drug,
-      dose: d,
-      unit,
-      at: new Date().toISOString(),
-    });
+    const at = isoFromLocalInput(time);
+    append(cs.caseId, "DRUG_BOLUS", { id: rid(), drug, dose: d, unit, at }, at);
     onDone(`${drug} ${formatNum(d)} ${unit} registrado`);
     onClose();
   }
 
+  function saveGasInfusion() {
+    const pct = parseFloat(gasPercent.replace(",", "."));
+    if (!drug || !pct) return;
+    const at = isoFromLocalInput(time);
+    append(
+      cs.caseId,
+      "INFUSION_STARTED",
+      {
+        id: rid(),
+        drug,
+        gas: true,
+        gasPercent: pct,
+        amount: 0,
+        amountUnit: "%",
+        diluentVolumeMl: 0,
+        concentration: pct,
+        concentrationUnit: "% esp",
+        rateMlH: 0,
+        weightBasedDose: 0,
+        doseUnit: "% esp",
+        summary: `${formatNum(pct)} % (espirado)`,
+        startedAt: at,
+        active: true,
+      },
+      at,
+    );
+    onDone(`Sevoflurano ${formatNum(pct)}% iniciado`);
+    onClose();
+  }
+
   function saveInfusion() {
+    if (isGas) return saveGasInfusion();
     if (!drug || !calc) return;
     const w = parseFloat(weight.replace(",", "."));
-    // Si cambio el peso respecto al registrado, dejamos traza.
     if (w && w !== cs.preop.weightKg) {
       append(cs.caseId, "WEIGHT_UPDATED", { weightKg: w });
     }
-    append(cs.caseId, "INFUSION_STARTED", {
-      id: rid(),
-      drug,
-      amount: parseFloat(amount.replace(",", ".")),
-      amountUnit,
-      diluentVolumeMl: parseFloat(diluent.replace(",", ".")),
-      concentration: calc.concentration,
-      concentrationUnit: calc.concentrationUnit,
-      rateMlH: parseFloat(rate.replace(",", ".")) || 0,
-      weightBasedDose: calc.weightBasedDose,
-      doseUnit: calc.doseUnit,
-      summary: calc.summary,
-      startedAt: new Date().toISOString(),
-      active: true,
-    });
-    onDone(`Perfusion ${drug} iniciada`);
+    const at = isoFromLocalInput(time);
+    // Resumen: siempre ml/h + dosis ponderada; para propofol añadimos mg/kg/h.
+    let summary = calc.summary;
+    if (isPropofol && propofolMgKgH && !calc.doseUnit.startsWith("mg/kg/h")) {
+      summary = `${calc.summary} · ${formatNum(propofolMgKgH.weightBasedDose)} mg/kg/h`;
+    }
+    append(
+      cs.caseId,
+      "INFUSION_STARTED",
+      {
+        id: rid(),
+        drug,
+        amount: parseFloat(amount.replace(",", ".")),
+        amountUnit,
+        diluentVolumeMl: parseFloat(diluent.replace(",", ".")),
+        concentration: calc.concentration,
+        concentrationUnit: calc.concentrationUnit,
+        rateMlH: parseFloat(rate.replace(",", ".")) || 0,
+        weightBasedDose: calc.weightBasedDose,
+        doseUnit: calc.doseUnit,
+        summary,
+        startedAt: at,
+        active: true,
+      },
+      at,
+    );
+    onDone(`Perfusión ${drug} iniciada`);
     onClose();
   }
 
   return (
-    <Modal title="Administrar farmaco" onClose={onClose}>
+    <Modal title="Administrar fármaco" onClose={onClose}>
       <div className="seg">
-        <button className={mode === "bolus" ? "on" : ""} onClick={() => setMode("bolus")}>
+        <button className={mode === "bolus" ? "on" : ""} onClick={() => setMode("bolus")} disabled={isGas}>
           Bolus
         </button>
         <button className={mode === "infusion" ? "on" : ""} onClick={() => setMode("infusion")}>
-          Perfusion
+          Perfusión
         </button>
       </div>
 
       <div className="field">
-        <label>Farmaco {drug && <span className="muted">- grupo {def?.group ?? "libre"}</span>}</label>
+        <label>Fármaco {drug && <span className="muted">· grupo {def?.group ?? "libre"}</span>}</label>
         <div className="chips" style={{ marginBottom: 10 }}>
           {DRUGS.map((d) => (
             <button key={d.name} className={`chip ${drug === d.name ? "on" : ""}`} onClick={() => pickDrug(d.name)}>
@@ -126,15 +182,23 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
             </button>
           ))}
         </div>
-        <input type="text" placeholder="o escribe otro farmaco" value={drug} onChange={(e) => setDrug(e.target.value)} />
+        <input
+          type="text"
+          placeholder="Otro fármaco (escribe el nombre)"
+          value={drug}
+          onChange={(e) => setDrug(e.target.value)}
+        />
       </div>
 
       {allergyHit && (
         <div className="alert danger">
-          Aviso de seguridad: este farmaco podria coincidir con una alergia registrada
-          ("{cs.preop.allergies}"). Verifica antes de administrar.
+          Aviso de seguridad: este fármaco podría coincidir con una alergia registrada ("{cs.preop.allergies}"). Verifica
+          antes de administrar.
         </div>
       )}
+
+      {/* Hora vigente por defecto, editable */}
+      <TimeField value={time} onChange={setTime} />
 
       {mode === "bolus" ? (
         <>
@@ -164,9 +228,22 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
               </select>
             </div>
           </div>
-          <div className="alert">La hora exacta se registra automaticamente al guardar.</div>
           <button className="btn primary block lg" onClick={saveBolus} disabled={!drug || !dose}>
             Registrar bolus
+          </button>
+        </>
+      ) : isGas ? (
+        <>
+          <div className="alert">
+            Gas anestésico: registra únicamente el porcentaje en aire espirado. Marca el fin de la perfusión cuando se
+            suspenda.
+          </div>
+          <div className="field">
+            <label>% en aire espirado</label>
+            <input inputMode="decimal" type="text" value={gasPercent} onChange={(e) => setGasPercent(e.target.value)} placeholder="Ej. 2,0" />
+          </div>
+          <button className="btn primary block lg" onClick={saveGasInfusion} disabled={!drug || !gasPercent}>
+            Iniciar sevoflurano
           </button>
         </>
       ) : (
@@ -191,7 +268,7 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
 
           {calc && (
             <div className="calc-box">
-              <div className="muted" style={{ fontSize: 13 }}>Concentracion final</div>
+              <div className="muted" style={{ fontSize: 13 }}>Concentración final</div>
               <div className="big">
                 {formatNum(calc.concentration)} {calc.concentrationUnit}
               </div>
@@ -221,12 +298,17 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
             <div className="calc-box">
               <div className="muted" style={{ fontSize: 13 }}>Se conservan ambos datos</div>
               <div className="big">{calc.summary}</div>
+              {isPropofol && propofolMgKgH && !doseUnit.startsWith("mg/kg/h") && (
+                <div className="big" style={{ fontSize: 18 }}>
+                  {formatNum(propofolMgKgH.weightBasedDose)} mg/kg/h
+                </div>
+              )}
             </div>
           )}
           {!weight && <div className="alert danger">Introduce el peso para calcular la dosis ponderada.</div>}
 
           <button className="btn primary block lg" onClick={saveInfusion} disabled={!drug || !calc}>
-            Iniciar perfusion
+            Iniciar perfusión
           </button>
         </>
       )}

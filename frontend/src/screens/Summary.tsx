@@ -23,7 +23,7 @@ export function Summary({ cs, onToast, canSign }: Props) {
 
   const paramsForTable = [
     ...STANDARD_PARAMS.filter((p) => cs.monitoring.standard.includes(p.code)),
-    ...cs.monitoring.custom,
+    ...cs.monitoring.custom.filter((c) => !STANDARD_PARAMS.some((s) => s.code === c.code)),
   ];
 
   async function renderCanvas(): Promise<HTMLCanvasElement> {
@@ -41,7 +41,6 @@ export function Summary({ cs, onToast, canSign }: Props) {
       const img = canvas.toDataURL("image/png");
       let pos = 0;
       let left = imgH;
-      // Paginado si excede A4
       while (left > 0) {
         pdf.addImage(img, "PNG", 0, pos, pw, imgH);
         left -= ph;
@@ -78,16 +77,20 @@ export function Summary({ cs, onToast, canSign }: Props) {
   }
 
   function sendEmail() {
-    const subject = `Hoja anestesica ${cs.ia}`;
+    const subject = `Hoja anestésica ${cs.ia}`;
     const body = buildTextSummary(cs, timeline);
     window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   }
 
+  const antibioticLine = cs.preop.antibiotic
+    ? `${cs.preop.antibiotic}${cs.preop.antibioticTime ? ` (${hhmm(cs.preop.antibioticTime)})` : ""}`
+    : "-";
+
   return (
     <div>
       <div className="card no-print">
-        <h2>Finalizacion</h2>
-        <p className="sub">Genera la hoja anestesica en A4 vertical, firma y envio.</p>
+        <h2>Finalización</h2>
+        <p className="sub">Genera la hoja anestésica en A4 vertical, firma y envío.</p>
         <div className="grid2">
           <button className="btn primary lg" onClick={exportPDF} disabled={busy}>
             {busy ? "Generando..." : "Descargar PDF"}
@@ -108,7 +111,7 @@ export function Summary({ cs, onToast, canSign }: Props) {
           </div>
         ) : canSign ? (
           <button className="btn primary block lg" style={{ marginTop: 12 }} onClick={sign}>
-            Firmar hoja (firma electronica)
+            Firmar hoja (firma electrónica)
           </button>
         ) : (
           <div className="alert" style={{ marginTop: 12 }}>
@@ -121,8 +124,8 @@ export function Summary({ cs, onToast, canSign }: Props) {
       <div className="sheet" ref={sheetRef}>
         <div className="sheet-head">
           <div>
-            <h1>Hoja Anestesica</h1>
-            <div className="muted">AnesHealth - Registro digital orientado a eventos</div>
+            <h1>Hoja Anestésica</h1>
+            <div className="muted">AnesHealth · Registro digital orientado a eventos</div>
           </div>
           <div style={{ textAlign: "right" }}>
             <div className="sheet-ia">{cs.ia}</div>
@@ -130,74 +133,94 @@ export function Summary({ cs, onToast, canSign }: Props) {
           </div>
         </div>
 
-        <table style={{ marginTop: 10 }}>
+        <table style={{ marginTop: 8 }}>
           <tbody>
             <tr>
               <td className="muted">Inicio</td>
               <td>{hhmm(cs.createdAt)}</td>
               <td className="muted">Fin</td>
               <td>{cs.endedAt ? hhmm(cs.endedAt) : "-"}</td>
-              <td className="muted">Duracion</td>
+              <td className="muted">Duración</td>
               <td>{cs.endedAt ? durationBetween(cs.createdAt, cs.endedAt) : "-"}</td>
-            </tr>
-            <tr>
-              <td className="muted">Talla</td>
-              <td>{cs.preop.heightCm ?? "-"} cm</td>
-              <td className="muted">Peso</td>
-              <td>{cs.preop.weightKg ?? "-"} kg</td>
-              <td className="muted">Firma</td>
-              <td>{cs.signedBy ?? "Pendiente"}</td>
+              <td className="muted">Talla / Peso</td>
+              <td>
+                {cs.preop.heightCm ?? "-"} cm / {cs.preop.weightKg ?? "-"} kg
+              </td>
             </tr>
           </tbody>
         </table>
 
-        <h2>Valoracion preanestesica</h2>
-        <table>
-          <tbody>
-            <tr><td className="muted" style={{ width: 140 }}>Alergias</td><td>{cs.preop.allergies || "-"}</td></tr>
-            <tr><td className="muted">Antecedentes</td><td>{cs.preop.history || "-"}</td></tr>
-            <tr><td className="muted">Medicacion</td><td>{cs.preop.medication || "-"}</td></tr>
-          </tbody>
-        </table>
-
-        <h2>Checklist de seguridad</h2>
-        <table>
-          <tbody>
-            <tr>
-              <td>Monitor: {yn(cs.safety.monitorChecked)}</td>
-              <td>Respirador: {yn(cs.safety.ventilatorChecked)}</td>
-              <td>Aspirador: {yn(cs.safety.suctionReady)}</td>
-              <td>Ambu: {yn(cs.safety.ambuReady)}</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <h2>Tecnicas anestesicas</h2>
-        {cs.techniques.length === 0 ? (
-          <div className="muted">Sin registrar</div>
-        ) : (
-          <table>
-            <tbody>
-              {cs.techniques.map((t) => (
-                <tr key={t.id}>
-                  <td style={{ width: 60 }}>{hhmm(t.at)}</td>
-                  <td><strong>{t.label}</strong></td>
-                  <td>
-                    {Object.entries(t.details)
-                      .filter(([, v]) => v !== "" && v != null)
-                      .map(([k, v]) => `${k}: ${String(v)}`)
-                      .join("  |  ")}
-                  </td>
+        {/* Bloque compacto en dos columnas */}
+        <div className="sheet-cols">
+          <div>
+            <h2>Valoración preanestésica</h2>
+            <table>
+              <tbody>
+                <tr>
+                  <td className="muted" style={{ width: 110 }}>Alergias</td>
+                  <td>{cs.preop.allergies || "-"}</td>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+                <tr>
+                  <td className="muted">Antecedentes</td>
+                  <td>{cs.preop.history || "-"}</td>
+                </tr>
+                <tr>
+                  <td className="muted">Medicación</td>
+                  <td>{cs.preop.medication || "-"}</td>
+                </tr>
+                <tr>
+                  <td className="muted">Antibiótico</td>
+                  <td>{antibioticLine}</td>
+                </tr>
+              </tbody>
+            </table>
+            <h2>Checklist de seguridad</h2>
+            <div className="muted" style={{ fontSize: 11 }}>
+              Monitor: {yn(cs.safety.monitorChecked)} · Respirador: {yn(cs.safety.ventilatorChecked)} · Aspirador:{" "}
+              {yn(cs.safety.suctionReady)} · Ambú: {yn(cs.safety.ambuReady)}
+            </div>
+          </div>
+          <div>
+            <h2>Técnicas anestésicas</h2>
+            {cs.techniques.length === 0 ? (
+              <div className="muted">Sin registrar</div>
+            ) : (
+              <table>
+                <tbody>
+                  {cs.techniques.map((t) => (
+                    <tr key={t.id}>
+                      <td style={{ width: 44 }}>{hhmm(t.at)}</td>
+                      <td>
+                        <strong>{t.label}</strong>
+                        <div className="muted" style={{ fontSize: 10 }}>
+                          {Object.entries(t.details)
+                            .filter(([, v]) => v !== "" && v != null)
+                            .map(([k, v]) => `${k}: ${String(v)}`)
+                            .join(" | ")}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
 
-        <h2>Medicacion</h2>
+        {/* Gráficas: el elemento con más peso visual */}
+        <h2>Gráficas de tendencias</h2>
+        <TrendCharts cs={cs} light maxPoints={60} />
+
+        {/* Medicación */}
+        <h2>Medicación</h2>
         <table>
           <thead>
-            <tr><th>Hora</th><th>Farmaco</th><th>Tipo</th><th>Detalle</th></tr>
+            <tr>
+              <th style={{ width: 44 }}>Hora</th>
+              <th>Fármaco</th>
+              <th style={{ width: 66 }}>Tipo</th>
+              <th>Detalle</th>
+            </tr>
           </thead>
           <tbody>
             {cs.boluses.map((b) => (
@@ -205,28 +228,90 @@ export function Summary({ cs, onToast, canSign }: Props) {
                 <td>{hhmm(b.at)}</td>
                 <td>{b.drug}</td>
                 <td>Bolus</td>
-                <td>{formatNum(b.dose)} {b.unit}</td>
+                <td>
+                  {formatNum(b.dose)} {b.unit}
+                </td>
               </tr>
             ))}
             {cs.infusions.map((i) => (
               <tr key={i.id}>
                 <td>{hhmm(i.startedAt)}</td>
                 <td>{i.drug}</td>
-                <td>Perfusion</td>
-                <td>{i.summary} (conc. {formatNum(i.concentration)} {i.concentrationUnit}){i.stoppedAt ? ` - fin ${hhmm(i.stoppedAt)}` : ""}</td>
+                <td>Perfusión</td>
+                <td>
+                  {i.summary}
+                  {!i.gas ? ` (conc. ${formatNum(i.concentration)} ${i.concentrationUnit})` : ""}
+                  {i.stoppedAt ? ` · fin ${hhmm(i.stoppedAt)}` : " · en curso"}
+                </td>
               </tr>
             ))}
             {cs.boluses.length === 0 && cs.infusions.length === 0 && (
-              <tr><td colSpan={4} className="muted">Sin registrar</td></tr>
+              <tr>
+                <td colSpan={4} className="muted">Sin registrar</td>
+              </tr>
             )}
           </tbody>
         </table>
 
-        <h2>Monitorizacion (registro seriado)</h2>
+        {/* Hemoderivados y analítica en dos columnas */}
+        <div className="sheet-cols">
+          <div>
+            <h2>Hemoderivados</h2>
+            {cs.bloodProducts.length === 0 ? (
+              <div className="muted">Sin registrar</div>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th style={{ width: 44 }}>Hora</th>
+                    <th>Producto</th>
+                    <th>Nº</th>
+                    <th>R.A.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cs.bloodProducts.map((b) => (
+                    <tr key={b.id}>
+                      <td>{hhmm(b.at)}</td>
+                      <td>{b.product}</td>
+                      <td>{b.registryNumber || "-"}</td>
+                      <td>{b.adverseReaction === true ? "Sí" : b.adverseReaction === false ? "No" : "-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+          <div>
+            <h2>Analítica intraoperatoria</h2>
+            {cs.labs.length === 0 ? (
+              <div className="muted">Sin registrar</div>
+            ) : (
+              <table>
+                <tbody>
+                  {cs.labs.map((l) => (
+                    <tr key={l.id}>
+                      <td style={{ width: 44 }}>{hhmm(l.at)}</td>
+                      <td>
+                        {Object.entries(l.values)
+                          .map(([k, v]) => `${k} ${formatNum(v)}`)
+                          .join(" · ")}
+                        {l.notes ? ` · ${l.notes}` : ""}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+
+        {/* Registro seriado numérico (datos completos, sin pérdida) */}
+        <h2>Monitorización (registro seriado)</h2>
         {cs.vitals.length === 0 ? (
           <div className="muted">Sin registros</div>
         ) : (
-          <table>
+          <table className="dense">
             <thead>
               <tr>
                 <th>Hora</th>
@@ -251,42 +336,46 @@ export function Summary({ cs, onToast, canSign }: Props) {
           </table>
         )}
 
-        <h2>Graficas de tendencias</h2>
-        <TrendCharts cs={cs} light />
-
-        <h2>Incidencias</h2>
-        {cs.incidents.length === 0 ? (
-          <div className="muted">Sin incidencias</div>
-        ) : (
-          <table>
-            <tbody>
-              {cs.incidents.map((i) => (
-                <tr key={i.id}>
-                  <td style={{ width: 60 }}>{hhmm(i.at)}</td>
-                  <td>[{i.severity}]</td>
-                  <td>{i.text}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-
-        <h2>Cronologia completa</h2>
-        <table>
-          <tbody>
-            {timeline.map((it) => (
-              <tr key={it.id}>
-                <td style={{ width: 60 }}>{hhmm(it.at)}</td>
-                <td><strong>{it.label}</strong></td>
-                <td>{it.detail ?? ""}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        {/* Incidencias y cronología */}
+        <div className="sheet-cols">
+          <div>
+            <h2>Incidencias</h2>
+            {cs.incidents.length === 0 ? (
+              <div className="muted">Sin incidencias</div>
+            ) : (
+              <table>
+                <tbody>
+                  {cs.incidents.map((i) => (
+                    <tr key={i.id}>
+                      <td style={{ width: 44 }}>{hhmm(i.at)}</td>
+                      <td>[{i.severity}] {i.text}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+          <div>
+            <h2>Cronología</h2>
+            <table>
+              <tbody>
+                {timeline.map((it) => (
+                  <tr key={it.id}>
+                    <td style={{ width: 44 }}>{hhmm(it.at)}</td>
+                    <td>
+                      <strong>{it.label}</strong>
+                      {it.detail ? <span className="muted"> · {it.detail}</span> : ""}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
 
         <div className="foot">
-          <span>Documento pseudonimizado (RGPD). Identificado unicamente por IA.</span>
-          <span>{cs.signedAt ? `Firmado: ${cs.signedBy} - ${dmy(cs.signedAt)} ${hhmm(cs.signedAt)}` : "Sin firmar"}</span>
+          <span>Documento pseudonimizado (RGPD). Identificado únicamente por IA.</span>
+          <span>{cs.signedAt ? `Firmado: ${cs.signedBy} · ${dmy(cs.signedAt)} ${hhmm(cs.signedAt)}` : "Sin firmar"}</span>
         </div>
       </div>
     </div>
@@ -294,16 +383,16 @@ export function Summary({ cs, onToast, canSign }: Props) {
 }
 
 function yn(v: boolean | null): string {
-  return v === true ? "Si" : v === false ? "No" : "-";
+  return v === true ? "Sí" : v === false ? "No" : "-";
 }
 
 function buildTextSummary(cs: CaseState, timeline: { at: string; label: string; detail?: string }[]): string {
   const lines: string[] = [];
-  lines.push(`HOJA ANESTESICA ${cs.ia}`);
+  lines.push(`HOJA ANESTÉSICA ${cs.ia}`);
   lines.push(`Fecha: ${dmy(cs.createdAt)}`);
   lines.push(`Peso: ${cs.preop.weightKg ?? "-"} kg  Talla: ${cs.preop.heightCm ?? "-"} cm`);
   lines.push("");
-  lines.push("CRONOLOGIA:");
+  lines.push("CRONOLOGÍA:");
   timeline.forEach((it) => lines.push(`${hhmm(it.at)}  ${it.label}${it.detail ? " - " + it.detail : ""}`));
   return lines.join("\n");
 }

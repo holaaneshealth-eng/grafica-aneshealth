@@ -1,5 +1,5 @@
 // Modelo orientado a eventos (event sourcing).
-// La hoja anestesica se reconstruye a partir de esta secuencia inmutable.
+// La hoja anestésica se reconstruye a partir de esta secuencia inmutable.
 import type { MonitoringParam } from "./monitoring";
 
 export type Phase = "PREOP" | "OR" | "CLOSED";
@@ -19,6 +19,8 @@ export type EventType =
   | "WEIGHT_UPDATED"
   | "MILESTONE"
   | "INCIDENT"
+  | "BLOOD_PRODUCT"
+  | "LAB_RESULT"
   | "SURGERY_ENDED"
   | "CASE_SIGNED"
   | "EVENT_VOIDED";
@@ -27,7 +29,7 @@ export interface BaseEvent {
   eventId: string;
   caseId: string;
   type: EventType;
-  occurredAt: string; // ISO - hora clinica real
+  occurredAt: string; // ISO - hora clínica real
   recordedAt: string; // ISO - hora de registro
   actor: string;
   payload: Record<string, unknown>;
@@ -40,6 +42,8 @@ export interface PreopInfo {
   weightKg: number | null;
   history: string;
   medication: string;
+  antibiotic: string;
+  antibioticTime: string | null; // ISO
 }
 
 export interface SafetyChecklist {
@@ -50,13 +54,13 @@ export interface SafetyChecklist {
 }
 
 export interface MonitoringSelection {
-  standard: string[]; // codigos
+  standard: string[]; // códigos
   custom: MonitoringParam[];
 }
 
 export interface TechniqueRecord {
   id: string; // instancia
-  type: string; // id de tecnica
+  type: string; // id de técnica
   label: string;
   details: Record<string, string | boolean | number>;
   at: string;
@@ -85,6 +89,8 @@ export interface InfusionRecord {
   startedAt: string;
   stoppedAt?: string | null;
   active: boolean;
+  gas?: boolean; // sevoflurano
+  gasPercent?: number; // % en aire espirado
 }
 
 export interface VitalsRecord {
@@ -107,6 +113,21 @@ export interface MilestoneRecord {
   label: string;
 }
 
+export interface BloodProductRecord {
+  id: string;
+  at: string;
+  product: string;
+  adverseReaction: boolean | null;
+  registryNumber: string;
+}
+
+export interface LabRecord {
+  id: string;
+  at: string;
+  values: Record<string, number>;
+  notes: string;
+}
+
 // Estado proyectado (vista materializada) de un caso.
 export interface CaseState {
   caseId: string;
@@ -124,6 +145,8 @@ export interface CaseState {
   vitals: VitalsRecord[];
   incidents: IncidentRecord[];
   milestones: MilestoneRecord[];
+  bloodProducts: BloodProductRecord[];
+  labs: LabRecord[];
   endedAt?: string | null;
   signedAt?: string | null;
   signedBy?: string | null;
@@ -137,7 +160,7 @@ export function emptyCaseState(caseId: string, ia: string, year: number, ordinal
     ordinal,
     createdAt,
     phase: "PREOP",
-    preop: { allergies: "", heightCm: null, weightKg: null, history: "", medication: "" },
+    preop: { allergies: "", heightCm: null, weightKg: null, history: "", medication: "", antibiotic: "", antibioticTime: null },
     safety: { monitorChecked: null, ventilatorChecked: null, suctionReady: null, ambuReady: null },
     monitoring: { standard: [], custom: [] },
     techniques: [],
@@ -146,6 +169,8 @@ export function emptyCaseState(caseId: string, ia: string, year: number, ordinal
     vitals: [],
     incidents: [],
     milestones: [],
+    bloodProducts: [],
+    labs: [],
     endedAt: null,
     signedAt: null,
     signedBy: null,

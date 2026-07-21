@@ -20,7 +20,7 @@ export function Login() {
       setUser(user);
       if (!user.mustChangePassword) await bootstrap();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "No se pudo iniciar sesion");
+      setError(err instanceof ApiError ? err.message : "No se pudo iniciar sesión");
     } finally {
       setBusy(false);
     }
@@ -33,7 +33,7 @@ export function Login() {
           <span className="logo-big">A</span>
         </div>
         <h1>AnesHealth</h1>
-        <p className="sub" style={{ textAlign: "center" }}>Hoja anestesica digital</p>
+        <p className="sub" style={{ textAlign: "center" }}>Hoja anestésica digital</p>
 
         <div className="field">
           <label>Usuario</label>
@@ -48,7 +48,7 @@ export function Login() {
           />
         </div>
         <div className="field">
-          <label>Contrasena</label>
+          <label>Contraseña</label>
           <input
             type="password"
             autoComplete="current-password"
@@ -60,7 +60,7 @@ export function Login() {
         {error && <div className="alert danger">{error}</div>}
 
         <button className="btn primary block lg" type="submit" disabled={busy || !username || !password}>
-          {busy ? "Entrando..." : "Iniciar sesion"}
+          {busy ? "Entrando..." : "Iniciar sesión"}
         </button>
       </form>
     </div>
@@ -79,7 +79,7 @@ export function ChangePassword() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (next !== confirm) {
-      setError("Las contrasenas nuevas no coinciden");
+      setError("Las contraseñas nuevas no coinciden");
       return;
     }
     setBusy(true);
@@ -89,7 +89,7 @@ export function ChangePassword() {
       // La sesion se invalida en el servidor: hay que volver a entrar.
       await logout();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "No se pudo cambiar la contrasena");
+      setError(err instanceof ApiError ? err.message : "No se pudo cambiar la contraseña");
     } finally {
       setBusy(false);
     }
@@ -99,23 +99,23 @@ export function ChangePassword() {
   return (
     <div className="login-wrap">
       <form className="login-card" onSubmit={submit}>
-        <h1 style={{ fontSize: 22 }}>Cambia tu contrasena</h1>
+        <h1 style={{ fontSize: 22 }}>Cambia tu contraseña</h1>
         <p className="sub" style={{ textAlign: "center" }}>
-          Por seguridad, debes establecer una contrasena propia antes de continuar.
+          Por seguridad, debes establecer una contraseña propia antes de continuar.
         </p>
         <div className="field">
-          <label>Contrasena actual</label>
+          <label>Contraseña actual</label>
           <input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" />
         </div>
         <div className="field">
-          <label>Nueva contrasena</label>
+          <label>Nueva contraseña</label>
           <input type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" />
           <p className="sub" style={{ margin: "6px 0 0" }}>
-            Minimo 10 caracteres, con mayuscula, minuscula y numero.
+            Mínimo 10 caracteres, con mayúscula, minúscula y número.
           </p>
         </div>
         <div className="field">
-          <label>Repite la nueva contrasena</label>
+          <label>Repite la nueva contraseña</label>
           <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" />
         </div>
         {error && <div className="alert danger">{error}</div>}

@@ -10,9 +10,10 @@ import { Summary } from "./screens/Summary";
 import { DrugModal } from "./components/DrugModal";
 import { VitalsModal } from "./components/VitalsModal";
 import { IncidentModal } from "./components/IncidentModal";
+import { StopInfusionModal } from "./components/StopInfusionModal";
 import { hhmmss } from "./utils/time";
 
-type Modal = null | "drug" | "vitals" | "incident";
+type Modal = null | "drug" | "vitals" | "incident" | "stopinf";
 const INACTIVITY_MS = 30 * 60 * 1000; // cierre de sesion por inactividad
 
 export default function App() {
@@ -78,7 +79,7 @@ export default function App() {
       window.clearTimeout(idleRef.current);
       idleRef.current = window.setTimeout(() => {
         void logout();
-        showToast("Sesion cerrada por inactividad");
+        showToast("Sesión cerrada por inactividad");
       }, INACTIVITY_MS);
     };
     const evs = ["mousemove", "keydown", "touchstart", "click"];
@@ -89,6 +90,8 @@ export default function App() {
       window.clearTimeout(idleRef.current);
     };
   }, [user, logout, showToast]);
+
+  const activeInfusions = cs ? cs.infusions.filter((i) => i.active).length : 0;
 
   if (booting) {
     return (
@@ -133,7 +136,7 @@ export default function App() {
         <span className="spacer" />
         <span className={`status-dot ${online ? "" : "off"} no-print`}>
           <i />
-          {online ? (pending > 0 ? `Sync ${pending}` : "En linea") : "Offline"}
+          {online ? (pending > 0 ? `Sync ${pending}` : "En línea") : "Offline"}
         </span>
         <span className="clock no-print">{hhmmss(clock).slice(0, 5)}</span>
         <span className="user-chip no-print">
@@ -160,14 +163,14 @@ export default function App() {
               <>
                 {!writable && cs.phase !== "CLOSED" && (
                   <div className="alert" style={{ marginTop: 4 }}>
-                    Modo solo lectura. No eres el responsable de este paciente o el caso ya no esta activo.
+                    Modo solo lectura. No eres el responsable de este paciente o el caso ya no está activo.
                   </div>
                 )}
 
                 {showEditingFlow && (
                   <div className="stepper no-print">
-                    <div className={`step ${cs.phase === "PREOP" ? "active" : "done"}`}>1. Preparacion</div>
-                    <div className={`step ${cs.phase === "OR" ? "active" : ""}`}>2. Quirofano</div>
+                    <div className={`step ${cs.phase === "PREOP" ? "active" : "done"}`}>1. Preparación</div>
+                    <div className={`step ${cs.phase === "OR" ? "active" : ""}`}>2. Quirófano</div>
                     <div className="step">3. Cierre</div>
                   </div>
                 )}
@@ -176,21 +179,21 @@ export default function App() {
                   <>
                     <Phase1 cs={cs} />
                     <button className="btn primary block lg no-print" disabled={!phase1Complete(cs)} onClick={advanceFromPhase1}>
-                      {phase1Complete(cs) ? "Continuar a quirofano" : "Completa todos los campos"}
+                      {phase1Complete(cs) ? "Continuar a quirófano" : "Completa todos los campos"}
                     </button>
                   </>
                 )}
 
                 {showEditingFlow && cs.phase === "OR" && (
                   <>
-                    <Phase2 cs={cs} />
+                    <Phase2 cs={cs} onToast={showToast} />
                     <button
                       className="btn primary block lg no-print"
                       style={{ marginTop: 8 }}
                       disabled={!phase2Ready(cs)}
                       onClick={endSurgery}
                     >
-                      {phase2Ready(cs) ? "Fin de cirugia" : "Completa checklist, monitor y tecnica"}
+                      {phase2Ready(cs) ? "Fin de cirugía" : "Completa checklist, monitor y técnica"}
                     </button>
                   </>
                 )}
@@ -202,10 +205,16 @@ export default function App() {
         )}
       </main>
 
+      {cs && showEditingFlow && cs.phase === "OR" && activeInfusions > 0 && modal === null && (
+        <button className="floating-stop no-print" onClick={() => setModal("stopinf")}>
+          ■ Fin perfusión ({activeInfusions})
+        </button>
+      )}
+
       {cs && showEditingFlow && cs.phase === "OR" && (
         <nav className="actionbar no-print">
           <button className="btn primary" onClick={() => setModal("drug")}>
-            + Farmaco
+            + Fármaco
           </button>
           <button className="btn" onClick={() => setModal("vitals")}>
             + Constantes
@@ -219,6 +228,7 @@ export default function App() {
       {cs && modal === "drug" && <DrugModal cs={cs} onClose={() => setModal(null)} onDone={showToast} />}
       {cs && modal === "vitals" && <VitalsModal cs={cs} onClose={() => setModal(null)} onDone={showToast} />}
       {cs && modal === "incident" && <IncidentModal cs={cs} onClose={() => setModal(null)} onDone={showToast} />}
+      {cs && modal === "stopinf" && <StopInfusionModal cs={cs} onClose={() => setModal(null)} onDone={showToast} />}
 
       {toast && <div className="toast">{toast}</div>}
     </div>

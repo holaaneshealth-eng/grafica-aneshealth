@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
 import { Modal } from "./Modal";
+import { TimeField } from "./TimeField";
 import { STANDARD_PARAMS, findParam } from "../domain/monitoring";
 import { useStore } from "../store/store";
 import type { CaseState } from "../domain/events";
+import { nowLocalInput, isoFromLocalInput } from "../utils/time";
 
 interface Props {
   cs: CaseState;
@@ -12,12 +14,16 @@ interface Props {
 
 export function VitalsModal({ cs, onClose, onDone }: Props) {
   const append = useStore((s) => s.append);
+
+  // Se muestran TODOS los parámetros posibles (estándar + adicionales seleccionados),
+  // para poder registrar cualquier constante en cualquier momento.
   const params = useMemo(() => {
-    const std = STANDARD_PARAMS.filter((p) => cs.monitoring.standard.includes(p.code));
-    return [...std, ...cs.monitoring.custom];
+    const custom = cs.monitoring.custom.filter((c) => !STANDARD_PARAMS.some((s) => s.code === c.code));
+    return [...STANDARD_PARAMS, ...custom];
   }, [cs.monitoring]);
 
   const [values, setValues] = useState<Record<string, string>>({});
+  const [time, setTime] = useState(nowLocalInput());
 
   function save() {
     const parsed: Record<string, number> = {};
@@ -26,21 +32,15 @@ export function VitalsModal({ cs, onClose, onDone }: Props) {
       if (isFinite(n)) parsed[k] = n;
     }
     if (Object.keys(parsed).length === 0) return;
-    append(cs.caseId, "VITALS_RECORDED", { id: "v-" + Date.now(), at: new Date().toISOString(), values: parsed, source: "manual" });
+    const at = isoFromLocalInput(time);
+    append(cs.caseId, "VITALS_RECORDED", { id: "v-" + Date.now(), at, values: parsed, source: "manual" }, at);
     onDone("Constantes registradas");
     onClose();
   }
 
-  if (params.length === 0) {
-    return (
-      <Modal title="Registro de constantes" onClose={onClose}>
-        <div className="empty">Primero selecciona los parametros de monitorizacion en la Fase 2.</div>
-      </Modal>
-    );
-  }
-
   return (
     <Modal title="Registro de constantes" onClose={onClose}>
+      <TimeField value={time} onChange={setTime} label="Hora del registro" />
       <div className="vital-grid">
         {params.map((p) => {
           const def = findParam(p.code, cs.monitoring.custom);
@@ -62,7 +62,7 @@ export function VitalsModal({ cs, onClose, onDone }: Props) {
           );
         })}
       </div>
-      <div className="alert">Cada registro queda asociado automaticamente a su hora exacta.</div>
+      <div className="alert">Rellena solo los campos que quieras. La hora es editable.</div>
       <button className="btn primary block lg" onClick={save}>
         Guardar constantes
       </button>

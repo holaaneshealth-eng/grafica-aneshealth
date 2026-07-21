@@ -403,6 +403,12 @@ textarea {
 .tl-body.incident::before { background: var(--danger); }
 .tl-body.vitals::before { background: #38bdf8; }
 .tl-body.technique::before { background: #a78bfa; }
+.tl-body.blood::before { background: #dc2626; }
+.tl-body.lab::before { background: #0ea5e9; }
+
+.time-field input[type="datetime-local"] {
+  color-scheme: dark;
+}
 .tl-label {
   font-weight: 600;
 }
@@ -647,6 +653,29 @@ textarea {
 .sheet th { color: #555; font-weight: 700; }
 .sheet .muted { color: #666; }
 .sheet .foot { margin-top: 18px; border-top: 1px solid #ccc; padding-top: 8px; font-size: 10px; color: #666; display: flex; justify-content: space-between; }
+.sheet .sheet-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.sheet table.dense th, .sheet table.dense td { padding: 2px 4px; font-size: 10px; }
+.sheet h2 { break-after: avoid; }
+.sheet table { break-inside: auto; }
+.sheet tr { break-inside: avoid; }
+
+/* Botón flotante para marcar fin de perfusión */
+.floating-stop {
+  position: fixed;
+  right: 14px;
+  bottom: calc(88px + var(--safe-b));
+  z-index: 45;
+  min-height: 52px;
+  padding: 0 18px;
+  border-radius: 999px;
+  border: 1px solid var(--warn);
+  background: rgba(245, 158, 11, 0.18);
+  color: #fde68a;
+  font-weight: 700;
+  font-size: 15px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(6px);
+}
 
 @media print {
   body { background: #fff; }

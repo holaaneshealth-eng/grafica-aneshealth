@@ -56,11 +56,11 @@ export function Admin({ onClose, onToast }: Props) {
   }
 
   async function resetPw(u: AdminUserRow) {
-    const pw = window.prompt(`Nueva contrasena para ${u.username} (min 10, may/min/num):`);
+    const pw = window.prompt(`Nueva contraseña para ${u.username} (mín. 10, may/min/núm):`);
     if (!pw) return;
     try {
       await api.resetPassword(u.id, pw);
-      onToast("Contrasena restablecida");
+      onToast("Contraseña restablecida");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Error");
     }
@@ -79,7 +79,7 @@ export function Admin({ onClose, onToast }: Props) {
     <div>
       <div className="card">
         <div style={{ display: "flex", alignItems: "center" }}>
-          <h2 style={{ flex: 1 }}>Administracion</h2>
+          <h2 style={{ flex: 1 }}>Administración</h2>
           <button className="btn ghost" onClick={onClose}>
             Cerrar
           </button>
@@ -89,7 +89,7 @@ export function Admin({ onClose, onToast }: Props) {
             Usuarios
           </button>
           <button className={tab === "audit" ? "on" : ""} onClick={() => setTab("audit")}>
-            Auditoria
+            Auditoría
           </button>
         </div>
         {error && <div className="alert danger">{error}</div>}
@@ -113,17 +113,17 @@ export function Admin({ onClose, onToast }: Props) {
               <div className="field">
                 <label>Rol</label>
                 <select value={nu.role} onChange={(e) => setNu({ ...nu, role: e.target.value })}>
-                  <option value="clinical">Clinico</option>
+                  <option value="clinical">Clínico</option>
                   <option value="admin">Administrador</option>
                 </select>
               </div>
               <div className="field">
-                <label>Ubicacion</label>
-                <input type="text" value={nu.location} onChange={(e) => setNu({ ...nu, location: e.target.value })} placeholder="Quirofano 11" />
+                <label>Ubicación</label>
+                <input type="text" value={nu.location} onChange={(e) => setNu({ ...nu, location: e.target.value })} placeholder="Quirófano 11" />
               </div>
             </div>
             <div className="field">
-              <label>Contrasena inicial</label>
+              <label>Contraseña inicial</label>
               <input type="text" value={nu.password} onChange={(e) => setNu({ ...nu, password: e.target.value })} />
             </div>
             <button className="btn primary block" onClick={createUser} disabled={!nu.username || !nu.password}>
@@ -140,12 +140,12 @@ export function Admin({ onClose, onToast }: Props) {
                     <strong>{u.username}</strong> <span className="sm">({u.role}{u.location ? " - " + u.location : ""})</span>
                     <div className="sm">
                       {u.active === 1 ? "Activo" : "Desactivado"}
-                      {u.must_change_password === 1 ? " - debe cambiar contrasena" : ""}
-                      {u.last_login ? ` - ultimo acceso ${dmy(u.last_login)}` : " - sin accesos"}
+                      {u.must_change_password === 1 ? " - debe cambiar contraseña" : ""}
+                      {u.last_login ? ` - último acceso ${dmy(u.last_login)}` : " - sin accesos"}
                     </div>
                   </span>
                   <button className="btn ghost" onClick={() => resetPw(u)}>
-                    Contrasena
+                    Contraseña
                   </button>
                   <button className={`btn ${u.active === 1 ? "danger" : ""}`} onClick={() => toggleActive(u)}>
                     {u.active === 1 ? "Desactivar" : "Activar"}
@@ -159,8 +159,8 @@ export function Admin({ onClose, onToast }: Props) {
 
       {tab === "audit" && (
         <div className="card">
-          <h2 style={{ fontSize: 16 }}>Registro de auditoria</h2>
-          <p className="sub">Ultimos eventos de seguridad y actividad.</p>
+          <h2 style={{ fontSize: 16 }}>Registro de auditoría</h2>
+          <p className="sub">Últimos eventos de seguridad y actividad.</p>
           <div className="pill-list">
             {audit.map((a) => (
               <div className="pill" key={a.id}>

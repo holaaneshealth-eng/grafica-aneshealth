@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { Modal } from "./Modal";
+import { TimeField } from "./TimeField";
 import { useStore } from "../store/store";
 import type { CaseState } from "../domain/events";
+import { nowLocalInput, isoFromLocalInput } from "../utils/time";
 
 interface Props {
   cs: CaseState;
@@ -10,24 +12,26 @@ interface Props {
 }
 
 const QUICK = [
-  "Hipotension",
+  "Hipotensión",
   "Bradicardia",
-  "Desaturacion",
+  "Desaturación",
   "Broncoespasmo",
   "Laringoespasmo",
   "Sangrado significativo",
-  "Reaccion alergica",
-  "Extubacion accidental",
+  "Reacción alérgica",
+  "Extubación accidental",
 ];
 
 export function IncidentModal({ cs, onClose, onDone }: Props) {
   const append = useStore((s) => s.append);
   const [text, setText] = useState("");
   const [severity, setSeverity] = useState<"leve" | "moderada" | "grave">("moderada");
+  const [time, setTime] = useState(nowLocalInput());
 
   function save() {
     if (!text.trim()) return;
-    append(cs.caseId, "INCIDENT", { id: "i-" + Date.now(), at: new Date().toISOString(), text: text.trim(), severity });
+    const at = isoFromLocalInput(time);
+    append(cs.caseId, "INCIDENT", { id: "i-" + Date.now(), at, text: text.trim(), severity }, at);
     onDone("Incidencia registrada");
     onClose();
   }
@@ -45,9 +49,10 @@ export function IncidentModal({ cs, onClose, onDone }: Props) {
         </div>
       </div>
       <div className="field">
-        <label>Descripcion</label>
+        <label>Descripción</label>
         <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Describe la incidencia..." autoFocus />
       </div>
+      <TimeField value={time} onChange={setTime} label="Hora de la incidencia" />
       <div className="field">
         <label>Gravedad</label>
         <div className="seg">
@@ -58,7 +63,6 @@ export function IncidentModal({ cs, onClose, onDone }: Props) {
           ))}
         </div>
       </div>
-      <div className="alert">Se registra con su hora (timestamp) exacta.</div>
       <button className="btn primary block lg" onClick={save} disabled={!text.trim()}>
         Guardar incidencia
       </button>

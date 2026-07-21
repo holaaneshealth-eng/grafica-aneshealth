@@ -4,18 +4,29 @@ import type { CaseState } from "../domain/events";
 import { STANDARD_PARAMS } from "../domain/monitoring";
 import { TECHNIQUES, techniqueById, type TechniqueField } from "../domain/techniques";
 import { TrendCharts } from "../components/TrendCharts";
-import { hhmm } from "../utils/time";
+import { BloodProductModal } from "../components/BloodProductModal";
+import { LabModal } from "../components/LabModal";
+import { hhmm, nowLocalInput, isoFromLocalInput } from "../utils/time";
 import { formatNum } from "../domain/calculations";
 
 interface Props {
   cs: CaseState;
+  onToast?: (m: string) => void;
 }
 
 type Tab = "safety" | "monitor" | "technique" | "record" | "charts";
 
-const MILESTONES = ["Entrada en quirofano", "Monitor conectado", "Preoxigenacion", "Induccion", "Intubacion", "Inicio cirugia", "Fin cirugia"];
+const MILESTONES = [
+  "Entrada en quirófano",
+  "Monitor conectado",
+  "Preoxigenación",
+  "Inducción",
+  "Intubación",
+  "Inicio cirugía",
+  "Fin cirugía",
+];
 
-export function Phase2({ cs }: Props) {
+export function Phase2({ cs, onToast }: Props) {
   const [tab, setTab] = useState<Tab>("safety");
   return (
     <div>
@@ -27,24 +38,24 @@ export function Phase2({ cs }: Props) {
           Monitor
         </button>
         <button className={tab === "technique" ? "on" : ""} onClick={() => setTab("technique")}>
-          Tecnicas
+          Técnicas
         </button>
         <button className={tab === "record" ? "on" : ""} onClick={() => setTab("record")}>
           Registro
         </button>
         <button className={tab === "charts" ? "on" : ""} onClick={() => setTab("charts")}>
-          Graficas
+          Gráficas
         </button>
       </div>
 
       {tab === "safety" && <SafetySection cs={cs} />}
       {tab === "monitor" && <MonitorSection cs={cs} />}
       {tab === "technique" && <TechniqueSection cs={cs} />}
-      {tab === "record" && <RecordSection cs={cs} />}
+      {tab === "record" && <RecordSection cs={cs} onToast={onToast} />}
       {tab === "charts" && (
         <div className="card">
-          <h2>Graficas de tendencias</h2>
-          <p className="sub">Generadas automaticamente a partir de los registros.</p>
+          <h2>Gráficas de tendencias</h2>
+          <p className="sub">Generadas automáticamente a partir de los registros.</p>
           <TrendCharts cs={cs} />
         </div>
       )}
@@ -52,14 +63,14 @@ export function Phase2({ cs }: Props) {
   );
 }
 
-/* ---------------- Safety ---------------- */
-function SafetySection({ cs }: Props) {
+/* ---------------- Seguridad ---------------- */
+function SafetySection({ cs }: { cs: CaseState }) {
   const append = useStore((s) => s.append);
   const items: { key: keyof CaseState["safety"]; label: string }[] = [
     { key: "monitorChecked", label: "Monitor comprobado" },
     { key: "ventilatorChecked", label: "Respirador comprobado" },
     { key: "suctionReady", label: "Aspirador disponible y operativo" },
-    { key: "ambuReady", label: "Ambu localizado y operativo" },
+    { key: "ambuReady", label: "Ambú localizado y operativo" },
   ];
   function set(key: string, value: boolean) {
     append(cs.caseId, "SAFETY_CHECK_SET", { item: key, value });
@@ -67,14 +78,14 @@ function SafetySection({ cs }: Props) {
   return (
     <div className="card">
       <h2>Checklist de seguridad</h2>
-      <p className="sub">Obligatorio confirmar cada punto. "No" queda registrado explicitamente.</p>
+      <p className="sub">Obligatorio confirmar cada punto. "No" queda registrado explícitamente.</p>
       {items.map((it) => (
         <div className="check-row" key={it.key}>
           <span className="label">{it.label}</span>
           <div style={{ width: 180 }}>
             <div className="yesno">
               <button className={`yes ${cs.safety[it.key] === true ? "on" : ""}`} onClick={() => set(it.key, true)}>
-                Si
+                Sí
               </button>
               <button className={`no ${cs.safety[it.key] === false ? "on" : ""}`} onClick={() => set(it.key, false)}>
                 No
@@ -87,8 +98,8 @@ function SafetySection({ cs }: Props) {
   );
 }
 
-/* ---------------- Monitoring ---------------- */
-function MonitorSection({ cs }: Props) {
+/* ---------------- Monitorización ---------------- */
+function MonitorSection({ cs }: { cs: CaseState }) {
   const append = useStore((s) => s.append);
   const [customName, setCustomName] = useState("");
   const [customUnit, setCustomUnit] = useState("");
@@ -101,7 +112,10 @@ function MonitorSection({ cs }: Props) {
   function addCustom() {
     if (!customName.trim()) return;
     const code = "C_" + customName.trim().toUpperCase().replace(/\s+/g, "_").slice(0, 12);
-    const custom = [...cs.monitoring.custom, { code, label: customName.trim(), unit: customUnit.trim() || "-", chart: true, color: "#14b8a6" }];
+    const custom = [
+      ...cs.monitoring.custom,
+      { code, label: customName.trim(), unit: customUnit.trim() || "-", chart: true, color: "#14b8a6" },
+    ];
     append(cs.caseId, "MONITORING_SELECTED", { standard: cs.monitoring.standard, custom });
     setCustomName("");
     setCustomUnit("");
@@ -115,18 +129,22 @@ function MonitorSection({ cs }: Props) {
 
   return (
     <div className="card">
-      <h2>Seleccion de monitorizacion</h2>
-      <p className="sub">Los parametros elegidos apareceran en el registro seriado y en las graficas.</p>
+      <h2>Selección de monitorización</h2>
+      <p className="sub">Los parámetros elegidos aparecerán en el registro seriado y en las gráficas.</p>
       <div className="chips">
         {STANDARD_PARAMS.map((p) => (
-          <button key={p.code} className={`chip ${cs.monitoring.standard.includes(p.code) ? "on" : ""}`} onClick={() => toggle(p.code)}>
-            {p.label} <small>{p.unit}</small>
+          <button
+            key={p.code}
+            className={`chip ${cs.monitoring.standard.includes(p.code) ? "on" : ""}`}
+            onClick={() => toggle(p.code)}
+          >
+            {p.label} {p.unit && <small>{p.unit}</small>}
           </button>
         ))}
       </div>
 
-      <div className="section-title">Monitorizacion adicional</div>
-      <p className="sub">Ej. BIS, Saturacion cerebral, ETE, PiCCO, Swan-Ganz...</p>
+      <div className="section-title">Monitorización adicional</div>
+      <p className="sub">Ej. Saturación cerebral, ETE, PiCCO, Swan-Ganz...</p>
       {cs.monitoring.custom.length > 0 && (
         <div className="chips" style={{ marginBottom: 12 }}>
           {cs.monitoring.custom.map((c) => (
@@ -139,7 +157,7 @@ function MonitorSection({ cs }: Props) {
       <div className="row">
         <div className="field" style={{ flex: 2 }}>
           <label>Nombre</label>
-          <input type="text" value={customName} onChange={(e) => setCustomName(e.target.value)} placeholder="Ej. BIS" />
+          <input type="text" value={customName} onChange={(e) => setCustomName(e.target.value)} placeholder="Ej. rSO₂" />
         </div>
         <div className="field">
           <label>Unidad</label>
@@ -147,14 +165,14 @@ function MonitorSection({ cs }: Props) {
         </div>
       </div>
       <button className="btn block" onClick={addCustom} disabled={!customName.trim()}>
-        + Anadir monitorizacion adicional
+        + Añadir monitorización adicional
       </button>
     </div>
   );
 }
 
-/* ---------------- Technique ---------------- */
-function TechniqueSection({ cs }: Props) {
+/* ---------------- Técnica ---------------- */
+function TechniqueSection({ cs }: { cs: CaseState }) {
   const append = useStore((s) => s.append);
   const [openId, setOpenId] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, string | boolean | number>>({});
@@ -176,7 +194,7 @@ function TechniqueSection({ cs }: Props) {
   return (
     <div className="card">
       <h2>Tipo de anestesia</h2>
-      <p className="sub">Puede seleccionarse mas de una tecnica. Cada una despliega sus campos.</p>
+      <p className="sub">Puede seleccionarse más de una técnica. Cada una despliega sus campos.</p>
 
       {cs.techniques.length > 0 && (
         <div className="pill-list" style={{ marginBottom: 14 }}>
@@ -219,7 +237,7 @@ function TechniqueSection({ cs }: Props) {
             <FieldInput key={f.key} field={f} value={details[f.key]} onChange={(v) => setDetails((d) => ({ ...d, [f.key]: v }))} />
           ))}
           <button className="btn primary block" onClick={() => saveTechnique(openId)}>
-            Anadir tecnica
+            Añadir técnica
           </button>
         </div>
       )}
@@ -238,7 +256,10 @@ function FieldInput({
 }) {
   return (
     <div className="field">
-      <label>{field.label}{field.unit ? ` (${field.unit})` : ""}</label>
+      <label>
+        {field.label}
+        {field.unit ? ` (${field.unit})` : ""}
+      </label>
       {field.type === "select" && (
         <select value={(value as string) ?? ""} onChange={(e) => onChange(e.target.value)}>
           <option value="">-</option>
@@ -250,7 +271,7 @@ function FieldInput({
       {field.type === "yesno" && (
         <div className="yesno">
           <button className={`yes ${value === true ? "on" : ""}`} onClick={() => onChange(true)}>
-            Si
+            Sí
           </button>
           <button className={`no ${value === false ? "on" : ""}`} onClick={() => onChange(false)}>
             No
@@ -269,60 +290,124 @@ function FieldInput({
   );
 }
 
-/* ---------------- Record (timeline + drugs) ---------------- */
-function RecordSection({ cs }: Props) {
+/* ---------------- Registro (hitos, perfusiones, hemoderivados, analítica, cronología) ---------------- */
+function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) => void }) {
   const append = useStore((s) => s.append);
   const getTimeline = useStore((s) => s.getTimeline);
   const timeline = getTimeline(cs.caseId);
 
+  const [showMilestone, setShowMilestone] = useState(false);
+  const [msText, setMsText] = useState("");
+  const [msTime, setMsTime] = useState(nowLocalInput());
+  const [bloodOpen, setBloodOpen] = useState(false);
+  const [labOpen, setLabOpen] = useState(false);
+
   function milestone(label: string) {
     append(cs.caseId, "MILESTONE", { id: "m-" + Date.now(), at: new Date().toISOString(), label });
   }
-  function stopInfusion(id: string, drug: string) {
-    append(cs.caseId, "INFUSION_STOPPED", { id, drug });
+  function addCustomMilestone() {
+    if (!msText.trim()) return;
+    const at = isoFromLocalInput(msTime);
+    append(cs.caseId, "MILESTONE", { id: "m-" + Date.now(), at, label: msText.trim() }, at);
+    setMsText("");
+    setMsTime(nowLocalInput());
+    setShowMilestone(false);
+    onToast?.("Hito registrado");
   }
 
-  const activeInfusions = cs.infusions.filter((i) => i.active);
+  const toast = (m: string) => onToast?.(m);
 
   return (
     <div>
       <div className="card">
-        <h2>Hitos rapidos</h2>
-        <p className="sub">Un toque = un evento con hora automatica.</p>
+        <h2>Hitos rápidos</h2>
+        <p className="sub">Un toque = un evento con hora automática.</p>
         <div className="chips">
           {MILESTONES.map((m) => (
             <button key={m} className="chip" onClick={() => milestone(m)}>
               {m}
             </button>
           ))}
+          <button className="chip" style={{ borderColor: "var(--accent)" }} onClick={() => setShowMilestone((v) => !v)}>
+            + Hito personalizado
+          </button>
         </div>
+        {showMilestone && (
+          <div className="card" style={{ marginTop: 12, background: "var(--bg)" }}>
+            <div className="field">
+              <label>Descripción del hito</label>
+              <input type="text" value={msText} onChange={(e) => setMsText(e.target.value)} placeholder="Ej. Clampaje aórtico" autoFocus />
+            </div>
+            <div className="field">
+              <label>Hora</label>
+              <input type="datetime-local" value={msTime} onChange={(e) => setMsTime(e.target.value)} />
+            </div>
+            <button className="btn primary block" onClick={addCustomMilestone} disabled={!msText.trim()}>
+              Añadir hito
+            </button>
+          </div>
+        )}
       </div>
 
-      {activeInfusions.length > 0 && (
-        <div className="card">
-          <h2>Perfusiones activas</h2>
-          {activeInfusions.map((inf) => (
-            <div className="pill" key={inf.id}>
-              <span className="t">{hhmm(inf.startedAt)}</span>
-              <span className="m">
-                <strong>{inf.drug}</strong>
-                <div className="sm">{inf.summary}</div>
-                <div className="sm">
-                  Conc. {formatNum(inf.concentration)} {inf.concentrationUnit}
-                </div>
-              </span>
-              <button className="btn danger" onClick={() => stopInfusion(inf.id, inf.drug)}>
-                Detener
-              </button>
-            </div>
-          ))}
+      <div className="card">
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <h2 style={{ flex: 1 }}>Hemoderivados</h2>
+          <button className="btn" onClick={() => setBloodOpen(true)}>
+            + Hemoderivado
+          </button>
         </div>
-      )}
+        {cs.bloodProducts.length === 0 ? (
+          <div className="empty">Sin hemoderivados registrados.</div>
+        ) : (
+          <div className="pill-list">
+            {cs.bloodProducts.map((b) => (
+              <div className="pill" key={b.id}>
+                <span className="t">{hhmm(b.at)}</span>
+                <span className="m">
+                  <strong>{b.product}</strong>
+                  <div className="sm">
+                    {b.registryNumber ? `Nº ${b.registryNumber}` : "Sin nº"}
+                    {b.adverseReaction === true ? " · reacción adversa: Sí" : b.adverseReaction === false ? " · reacción: No" : ""}
+                  </div>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="card">
-        <h2>Cronologia</h2>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <h2 style={{ flex: 1 }}>Analítica intraoperatoria</h2>
+          <button className="btn" onClick={() => setLabOpen(true)}>
+            + Analítica
+          </button>
+        </div>
+        {cs.labs.length === 0 ? (
+          <div className="empty">Sin analíticas registradas.</div>
+        ) : (
+          <div className="pill-list">
+            {cs.labs.map((l) => (
+              <div className="pill" key={l.id}>
+                <span className="t">{hhmm(l.at)}</span>
+                <span className="m">
+                  <div className="sm">
+                    {Object.entries(l.values)
+                      .map(([k, v]) => `${k} ${formatNum(v)}`)
+                      .join("  ·  ")}
+                  </div>
+                  {l.notes && <div className="sm">{l.notes}</div>}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="card">
+        <h2>Cronología</h2>
         <p className="sub">La hoja se reconstruye a partir de esta secuencia de eventos.</p>
-        {timeline.length === 0 && <div className="empty">Sin eventos todavia.</div>}
+        {timeline.length === 0 && <div className="empty">Sin eventos todavía.</div>}
         <div className="timeline">
           {timeline.map((it) => (
             <div className="tl-item" key={it.id}>
@@ -335,6 +420,9 @@ function RecordSection({ cs }: Props) {
           ))}
         </div>
       </div>
+
+      {bloodOpen && <BloodProductModal cs={cs} onClose={() => setBloodOpen(false)} onDone={toast} />}
+      {labOpen && <LabModal cs={cs} onClose={() => setLabOpen(false)} onDone={toast} />}
     </div>
   );
 }

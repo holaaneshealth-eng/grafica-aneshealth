@@ -8,6 +8,8 @@ import {
   type IncidentRecord,
   type MilestoneRecord,
   type TechniqueRecord,
+  type BloodProductRecord,
+  type LabRecord,
   emptyCaseState,
 } from "../domain/events";
 
@@ -93,6 +95,10 @@ function applyEvent(state: CaseState, e: BaseEvent): CaseState {
       return { ...state, incidents: [...state.incidents, p as unknown as IncidentRecord] };
     case "MILESTONE":
       return { ...state, milestones: [...state.milestones, p as unknown as MilestoneRecord] };
+    case "BLOOD_PRODUCT":
+      return { ...state, bloodProducts: [...state.bloodProducts, p as unknown as BloodProductRecord] };
+    case "LAB_RESULT":
+      return { ...state, labs: [...state.labs, p as unknown as LabRecord] };
     case "SURGERY_ENDED":
       return { ...state, phase: "CLOSED", endedAt: e.occurredAt };
     case "CASE_SIGNED":
@@ -142,7 +148,7 @@ export function buildTimeline(events: BaseEvent[]): TimelineItem[] {
         items.push({ id: e.eventId, at: e.occurredAt, kind: "infusion", label: `Cambio ritmo ${p.drug}`, detail: p.summary as string });
         break;
       case "INFUSION_STOPPED":
-        items.push({ id: e.eventId, at: e.occurredAt, kind: "infusion", label: `Fin perfusion ${p.drug}` });
+        items.push({ id: e.eventId, at: e.occurredAt, kind: "infusion", label: `Fin perfusión ${p.drug}` });
         break;
       case "TECHNIQUE_ADDED":
         items.push({ id: e.eventId, at: e.occurredAt, kind: "technique", label: p.label as string });
@@ -152,18 +158,30 @@ export function buildTimeline(events: BaseEvent[]): TimelineItem[] {
           id: e.eventId,
           at: e.occurredAt,
           kind: "vitals",
-          label: "Registro monitorizacion",
+          label: "Registro monitorización",
           detail: summarizeVitals(p.values as Record<string, number>),
         });
         break;
       case "INCIDENT":
         items.push({ id: e.eventId, at: e.occurredAt, kind: "incident", label: "Incidencia", detail: p.text as string });
         break;
+      case "BLOOD_PRODUCT":
+        items.push({
+          id: e.eventId,
+          at: e.occurredAt,
+          kind: "blood",
+          label: p.product as string,
+          detail: `Hemoderivado${p.registryNumber ? ` · nº ${p.registryNumber}` : ""}${p.adverseReaction === true ? " · REACCIÓN ADVERSA" : ""}`,
+        });
+        break;
+      case "LAB_RESULT":
+        items.push({ id: e.eventId, at: e.occurredAt, kind: "lab", label: "Analítica intraoperatoria", detail: summarizeLab(p) });
+        break;
       case "WEIGHT_UPDATED":
         items.push({ id: e.eventId, at: e.occurredAt, kind: "note", label: "Peso actualizado", detail: `${p.weightKg} kg` });
         break;
       case "SURGERY_ENDED":
-        items.push({ id: e.eventId, at: e.occurredAt, kind: "case", label: "Fin de cirugia" });
+        items.push({ id: e.eventId, at: e.occurredAt, kind: "case", label: "Fin de cirugía" });
         break;
       case "CASE_SIGNED":
         items.push({ id: e.eventId, at: e.occurredAt, kind: "case", label: "Hoja firmada", detail: p.signedBy as string });
@@ -179,4 +197,11 @@ function summarizeVitals(values: Record<string, number>): string {
   return Object.entries(values)
     .map(([k, v]) => `${k} ${v}`)
     .join("  ");
+}
+
+function summarizeLab(p: Record<string, unknown>): string {
+  const values = (p.values as Record<string, number>) ?? {};
+  const parts = Object.entries(values).map(([k, v]) => `${k} ${v}`);
+  if (p.notes) parts.push(String(p.notes));
+  return parts.join("  ");
 }
