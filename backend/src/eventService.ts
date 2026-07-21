@@ -64,6 +64,9 @@ async function appendEventTx(client: PoolClient, caseId: string, input: AppendIn
 
   if (input.type === "SURGERY_ENDED") {
     await client.query(`UPDATE cases SET status='closed', closed_at=$1, last_activity=$2 WHERE case_id=$3`, [occurredAt, now, caseId]);
+  } else if (input.type === "CASE_REOPENED") {
+    // Reabrir un caso cerrado (nunca uno firmado): vuelve a estar activo para seguir completando.
+    await client.query(`UPDATE cases SET status='active', closed_at=NULL, last_activity=$1 WHERE case_id=$2`, [now, caseId]);
   } else if (input.type === "CASE_SIGNED") {
     const signedBy = (input.payload.signedBy as string) ?? actor.displayName;
     await client.query(

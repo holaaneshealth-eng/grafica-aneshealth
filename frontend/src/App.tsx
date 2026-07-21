@@ -106,6 +106,7 @@ export default function App() {
   const activeCase = cases.find((c) => c.caseId === activeCaseId);
   const writable = activeCaseId ? canWrite(activeCaseId) : false;
   const canSign = !!activeCase && (user.role === "admin" || (activeCase.ownerUserId === user.id && activeCase.status !== "signed"));
+  const canReopen = !!activeCase && activeCase.status === "closed" && (user.role === "admin" || activeCase.ownerUserId === user.id);
   const showEditingFlow = cs && writable && cs.phase !== "CLOSED";
 
   function advanceFromPhase1() {
@@ -198,7 +199,7 @@ export default function App() {
                   </>
                 )}
 
-                {!showEditingFlow && <Summary cs={cs} onToast={showToast} canSign={canSign} />}
+                {!showEditingFlow && <Summary cs={cs} onToast={showToast} canSign={canSign} canReopen={canReopen} />}
               </>
             )}
           </>

@@ -22,6 +22,7 @@ export type EventType =
   | "BLOOD_PRODUCT"
   | "LAB_RESULT"
   | "SURGERY_ENDED"
+  | "CASE_REOPENED"
   | "CASE_SIGNED"
   | "EVENT_VOIDED";
 

@@ -28,6 +28,7 @@ export const APPENDABLE_EVENT_TYPES = [
   "BLOOD_PRODUCT",
   "LAB_RESULT",
   "SURGERY_ENDED",
+  "CASE_REOPENED",
   "CASE_SIGNED",
 ] as const;
 

@@ -74,6 +74,7 @@ interface AppState {
   createCase: () => Promise<string | null>;
   setActiveCase: (id: string | null) => void;
   append: (caseId: string, type: EventType, payload: Record<string, unknown>, occurredAt?: string) => void;
+  reopenCase: (caseId: string) => void;
   voidEvent: (caseId: string, targetId: string, reason: string) => Promise<void>;
   deleteCase: (id: string) => Promise<void>;
   flush: () => Promise<void>;
@@ -153,6 +154,15 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   setActiveCase: (id) => set({ activeCaseId: id }),
+
+  // Reabrir un caso cerrado (no firmado) para seguir completando. Actualiza el estado local
+  // de forma optimista para que la UI vuelva al flujo de edición al instante.
+  reopenCase: (caseId) => {
+    get().append(caseId, "CASE_REOPENED", {});
+    set((s) => ({
+      cases: s.cases.map((c) => (c.caseId === caseId ? { ...c, status: "active", closedAt: null } : c)),
+    }));
+  },
 
   append: (caseId, type, payload, occurredAt) => {
     const now = new Date().toISOString();

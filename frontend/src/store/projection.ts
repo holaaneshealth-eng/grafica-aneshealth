@@ -101,6 +101,8 @@ function applyEvent(state: CaseState, e: BaseEvent): CaseState {
       return { ...state, labs: [...state.labs, p as unknown as LabRecord] };
     case "SURGERY_ENDED":
       return { ...state, phase: "CLOSED", endedAt: e.occurredAt };
+    case "CASE_REOPENED":
+      return { ...state, phase: "OR", endedAt: null };
     case "CASE_SIGNED":
       return { ...state, signedAt: e.occurredAt, signedBy: p.signedBy as string };
     default:
@@ -182,6 +184,9 @@ export function buildTimeline(events: BaseEvent[]): TimelineItem[] {
         break;
       case "SURGERY_ENDED":
         items.push({ id: e.eventId, at: e.occurredAt, kind: "case", label: "Fin de cirugía" });
+        break;
+      case "CASE_REOPENED":
+        items.push({ id: e.eventId, at: e.occurredAt, kind: "case", label: "Caso reabierto para completar" });
         break;
       case "CASE_SIGNED":
         items.push({ id: e.eventId, at: e.occurredAt, kind: "case", label: "Hoja firmada", detail: p.signedBy as string });

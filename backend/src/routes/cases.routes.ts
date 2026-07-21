@@ -68,7 +68,10 @@ casesRouter.post("/:id/events", csrfGuard, async (req, res) => {
   //    solo puede cerrar (SURGERY_ENDED) si sigue activo. Nunca escribe en casos ajenos ni ya firmados.
   const u = req.user!;
   let allowed = false;
-  if (u.role === "admin") {
+  if (data.type === "CASE_REOPENED") {
+    // Punto de no retorno = la firma. Solo se puede reabrir un caso cerrado (no firmado).
+    allowed = c.status === "closed" && (u.role === "admin" || c.owner_user_id === u.id);
+  } else if (u.role === "admin") {
     allowed = true;
   } else if (c.owner_user_id === u.id) {
     if (data.type === "CASE_SIGNED") allowed = c.status !== "signed";

@@ -12,11 +12,13 @@ interface Props {
   cs: CaseState;
   onToast: (m: string) => void;
   canSign: boolean;
+  canReopen: boolean;
 }
 
-export function Summary({ cs, onToast, canSign }: Props) {
+export function Summary({ cs, onToast, canSign, canReopen }: Props) {
   const sheetRef = useRef<HTMLDivElement>(null);
   const append = useStore((s) => s.append);
+  const reopenCase = useStore((s) => s.reopenCase);
   const getTimeline = useStore((s) => s.getTimeline);
   const timeline = getTimeline(cs.caseId);
   const [busy, setBusy] = useState(false);
@@ -88,9 +90,28 @@ export function Summary({ cs, onToast, canSign }: Props) {
 
   return (
     <div>
+      {canReopen && (
+        <div className="card no-print" style={{ borderColor: "var(--accent)" }}>
+          <h2 style={{ fontSize: 16 }}>¿Falta algo por registrar?</h2>
+          <p className="sub">El caso está cerrado pero aún no firmado. Puedes reabrirlo para seguir completando.</p>
+          <button
+            className="btn block lg"
+            onClick={() => {
+              reopenCase(cs.caseId);
+              onToast("Caso reabierto para completar");
+            }}
+          >
+            ← Volver a completar
+          </button>
+        </div>
+      )}
+
       <div className="card no-print">
         <h2>Finalización</h2>
-        <p className="sub">Genera la hoja anestésica en A4 vertical, firma y envío.</p>
+        <p className="sub">
+          Genera la hoja anestésica en A4 vertical, firma y envío.
+          {!cs.signedAt && " La firma es el punto de no retorno: tras firmar no se puede reabrir."}
+        </p>
         <div className="grid2">
           <button className="btn primary lg" onClick={exportPDF} disabled={busy}>
             {busy ? "Generando..." : "Descargar PDF"}
