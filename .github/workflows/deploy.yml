@@ -1,0 +1,26 @@
+name: deploy-render
+
+# Despliega automáticamente en Render en cada push a main.
+# Requisito (una sola vez): crea el secreto RENDER_DEPLOY_HOOK en el repo con la URL
+# del "Deploy Hook" de tu servicio en Render (Settings -> Deploy Hook).
+#   GitHub repo -> Settings -> Secrets and variables -> Actions -> New repository secret
+#   Name: RENDER_DEPLOY_HOOK   Value: https://api.render.com/deploy/srv-xxxxx?key=yyyyy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render deploy
+        run: |
+          if [ -z "${{ secrets.RENDER_DEPLOY_HOOK }}" ]; then
+            echo "Falta el secreto RENDER_DEPLOY_HOOK; configúralo en el repositorio. Nada que hacer."
+            exit 0
+          fi
+          echo "Solicitando despliegue a Render..."
+          code=$(curl -fsS -o /dev/null -w "%{http_code}" -X POST "${{ secrets.RENDER_DEPLOY_HOOK }}") || true
+          echo "Respuesta de Render: HTTP $code"
