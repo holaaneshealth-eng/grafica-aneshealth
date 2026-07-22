@@ -129,6 +129,10 @@ function applyEvent(state: CaseState, e: BaseEvent): CaseState {
       return { ...state, incidents: [...state.incidents, p as unknown as IncidentRecord] };
     case "MILESTONE":
       return { ...state, milestones: [...state.milestones, p as unknown as MilestoneRecord] };
+    case "MILESTONE_TIME_CHANGED":
+      return { ...state, milestones: state.milestones.map((m) => (m.id === p.id ? { ...m, at: p.at as string } : m)) };
+    case "MILESTONE_REMOVED":
+      return { ...state, milestones: state.milestones.filter((m) => m.id !== p.id) };
     case "BLOOD_PRODUCT":
       return { ...state, bloodProducts: [...state.bloodProducts, p as unknown as BloodProductRecord] };
     case "LAB_RESULT":
@@ -150,8 +154,12 @@ function applyEvent(state: CaseState, e: BaseEvent): CaseState {
 export function buildTimeline(events: BaseEvent[]): TimelineItem[] {
   const items: TimelineItem[] = [];
   const voided = new Set<string>();
+  const removedMs = new Set<string>();
+  const msTimeChange = new Map<string, string>();
   events.forEach((e) => {
     if (e.type === "EVENT_VOIDED") voided.add((e.payload.targetId as string) ?? "");
+    if (e.type === "MILESTONE_REMOVED") removedMs.add((e.payload.id as string) ?? "");
+    if (e.type === "MILESTONE_TIME_CHANGED") msTimeChange.set((e.payload.id as string) ?? "", e.payload.at as string);
   });
 
   for (const e of events) {
@@ -161,9 +169,12 @@ export function buildTimeline(events: BaseEvent[]): TimelineItem[] {
       case "CASE_CREATED":
         items.push({ id: e.eventId, at: e.occurredAt, kind: "case", label: "Caso creado", detail: p.ia as string });
         break;
-      case "MILESTONE":
-        items.push({ id: e.eventId, at: e.occurredAt, kind: "milestone", label: p.label as string });
+      case "MILESTONE": {
+        const mid = (p.id as string) ?? "";
+        if (removedMs.has(mid)) break;
+        items.push({ id: e.eventId, at: msTimeChange.get(mid) ?? e.occurredAt, kind: "milestone", label: p.label as string });
         break;
+      }
       case "DRUG_BOLUS":
         items.push({
           id: e.eventId,

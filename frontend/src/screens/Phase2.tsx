@@ -7,7 +7,7 @@ import { AnesthesiaChart } from "../components/AnesthesiaChart";
 import { MedicationTimeline } from "../components/MedicationTimeline";
 import { BloodProductModal } from "../components/BloodProductModal";
 import { LabModal } from "../components/LabModal";
-import { hhmm, nowLocalInput, isoFromLocalInput } from "../utils/time";
+import { hhmm, nowLocalInput, isoFromLocalInput, isoToLocalInput } from "../utils/time";
 import { formatNum } from "../domain/calculations";
 
 interface Props {
@@ -329,6 +329,15 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
 
   function milestone(label: string) {
     append(cs.caseId, "MILESTONE", { id: "m-" + Date.now(), at: new Date().toISOString(), label });
+    onToast?.(`${label} registrado`);
+  }
+  function changeMsTime(id: string, val: string) {
+    const at = isoFromLocalInput(val);
+    append(cs.caseId, "MILESTONE_TIME_CHANGED", { id, at }, at);
+  }
+  function removeMs(id: string) {
+    append(cs.caseId, "MILESTONE_REMOVED", { id });
+    onToast?.("Hito eliminado");
   }
   function addCustomMilestone() {
     if (!msText.trim()) return;
@@ -353,7 +362,7 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
               {m}
             </button>
           ))}
-          <button className="chip" style={{ borderColor: "var(--accent)" }} onClick={() => setShowMilestone((v) => !v)}>
+          <button className={`chip ${showMilestone ? "on" : ""}`} onClick={() => setShowMilestone((v) => !v)}>
             + Hito personalizado
           </button>
         </div>
@@ -371,6 +380,33 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
               Añadir hito
             </button>
           </div>
+        )}
+
+        {cs.milestones.length > 0 && (
+          <>
+            <div className="section-title" style={{ margin: "14px 0 6px" }}>Hitos registrados (edita la hora o elimina)</div>
+            <div className="pill-list">
+              {cs.milestones
+                .slice()
+                .sort((a, b) => a.at.localeCompare(b.at))
+                .map((m) => (
+                  <div className="pill" key={m.id}>
+                    <span className="m">
+                      <strong>{m.label}</strong>
+                    </span>
+                    <input
+                      type="datetime-local"
+                      className="ms-time"
+                      value={isoToLocalInput(m.at)}
+                      onChange={(e) => changeMsTime(m.id, e.target.value)}
+                    />
+                    <button className="btn ghost" style={{ minHeight: 40, padding: "0 12px" }} onClick={() => removeMs(m.id)} title="Eliminar hito">
+                      ✕
+                    </button>
+                  </div>
+                ))}
+            </div>
+          </>
         )}
       </div>
 

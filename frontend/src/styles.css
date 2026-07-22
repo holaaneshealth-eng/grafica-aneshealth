@@ -616,6 +616,12 @@ textarea {
   color: var(--text-dim);
   font-size: 13px;
 }
+.pill .ms-time {
+  width: auto;
+  flex-shrink: 0;
+  padding: 8px 10px;
+  font-size: 14px;
+}
 
 .empty {
   text-align: center;
