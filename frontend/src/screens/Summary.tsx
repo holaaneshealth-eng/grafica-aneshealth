@@ -7,6 +7,7 @@ import { AnesthesiaChart, CHARTED } from "../components/AnesthesiaChart";
 import { dmy, hhmm, durationBetween } from "../utils/time";
 import { STANDARD_PARAMS } from "../domain/monitoring";
 import { formatNum } from "../domain/calculations";
+import { WHO_PHASES } from "../domain/clinical";
 
 interface Props {
   cs: CaseState;
@@ -43,6 +44,15 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
 
   const totalBleeding = cs.balances.reduce((s, x) => s + (x.bleedingMl ?? 0), 0);
   const totalDiuresis = cs.balances.reduce((s, x) => s + (x.diuresisMl ?? 0), 0);
+  const totalInsensible = cs.balances.reduce((s, x) => s + (x.insensibleMl ?? 0), 0);
+
+  // Resumen del checklist de la OMS (solo se plasma si se ha marcado algo).
+  const whoDone = WHO_PHASES.map((ph) => ({
+    phase: ph.phase,
+    done: ph.items.filter((it) => cs.who[it.key] === true).length,
+    total: ph.items.length,
+  }));
+  const whoAnyChecked = whoDone.some((p) => p.done > 0);
 
   async function renderCanvas(): Promise<HTMLCanvasElement> {
     return html2canvas(sheetRef.current!, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
@@ -258,6 +268,12 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
                   <td className="muted">Antibiótico</td>
                   <td>{antibioticLine}</td>
                 </tr>
+                {cs.preop.breastfeeding != null && (
+                  <tr>
+                    <td className="muted">Lactancia</td>
+                    <td>{cs.preop.breastfeeding ? "Sí (activa)" : "No"}</td>
+                  </tr>
+                )}
               </tbody>
             </table>
             <h2>Checklist de seguridad</h2>
@@ -265,6 +281,14 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
               Monitor: {yn(cs.safety.monitorChecked)} · Respirador: {yn(cs.safety.ventilatorChecked)} · Aspirador:{" "}
               {yn(cs.safety.suctionReady)} · Ambú: {yn(cs.safety.ambuReady)}
             </div>
+            {whoAnyChecked && (
+              <>
+                <h2>Checklist de la OMS</h2>
+                <div className="muted" style={{ fontSize: 11 }}>
+                  {whoDone.map((p) => `${p.phase.split(" ·")[0]}: ${p.done}/${p.total}`).join(" · ")}
+                </div>
+              </>
+            )}
           </div>
           <div>
             <h2>Técnicas anestésicas</h2>
@@ -313,6 +337,11 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
             <h2>Balance</h2>
             <div className="muted" style={{ fontSize: 12 }}>
               Sangrado total: <strong>{totalBleeding} ml</strong> · Diuresis total: <strong>{totalDiuresis} ml</strong>
+              {totalInsensible > 0 && (
+                <>
+                  {" "}· Pérdidas insensibles: <strong>{totalInsensible} ml</strong>
+                </>
+              )}
             </div>
           </>
         )}

@@ -11,6 +11,7 @@ import { DrugModal } from "./components/DrugModal";
 import { VitalsModal } from "./components/VitalsModal";
 import { IncidentModal } from "./components/IncidentModal";
 import { hhmmss } from "./utils/time";
+import { matchAntibiotic } from "./domain/clinical";
 
 type Modal = null | "drug" | "vitals" | "incident";
 const INACTIVITY_MS = 30 * 60 * 1000; // cierre de sesion por inactividad
@@ -118,6 +119,25 @@ export default function App() {
   const minsSinceVitals = Math.floor((Date.parse(clock) - lastVitalsMs) / 60000);
   const vitalsOverdue = !!showEditingFlow && cs?.phase === "OR" && minsSinceVitals >= reminderMin;
 
+  // Recordatorio de redosificación de antibiótico profiláctico.
+  const antibioticReminder = (() => {
+    if (!cs || cs.phase !== "OR") return null;
+    const name = cs.preop.antibiotic?.trim();
+    if (!name) return null;
+    const match = matchAntibiotic(name);
+    if (!match || match.minutes == null) return null;
+    const times: number[] = [];
+    if (cs.preop.antibioticTime) times.push(new Date(cs.preop.antibioticTime).getTime());
+    cs.boluses.forEach((b) => {
+      if (matchAntibiotic(b.drug)?.label === match.label) times.push(new Date(b.at).getTime());
+    });
+    if (times.length === 0) return null;
+    const last = Math.max(...times);
+    const elapsedMin = Math.floor((Date.parse(clock) - last) / 60000);
+    if (elapsedMin < match.minutes) return null;
+    return { label: match.label, elapsedMin, interval: match.minutes };
+  })();
+
   function changeReminder(min: number) {
     setReminderMin(min);
     try {
@@ -205,6 +225,18 @@ export default function App() {
                       {phase1Complete(cs) ? "Continuar a quirófano" : "Completa todos los campos"}
                     </button>
                   </>
+                )}
+
+                {showEditingFlow && cs.phase === "OR" && antibioticReminder && (
+                  <div className="alert danger" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ flex: 1 }}>
+                      💉 Redosis de antibiótico: <strong>{antibioticReminder.label}</strong> — han pasado{" "}
+                      {antibioticReminder.elapsedMin} min (intervalo {antibioticReminder.interval} min). Considera redosificar.
+                    </span>
+                    <button className="btn primary" onClick={() => setModal("drug")}>
+                      Registrar dosis
+                    </button>
+                  </div>
                 )}
 
                 {showEditingFlow && cs.phase === "OR" && (

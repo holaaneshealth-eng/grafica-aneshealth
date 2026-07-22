@@ -58,6 +58,8 @@ function applyEvent(state: CaseState, e: BaseEvent): CaseState {
       return { ...state, phase: p.next as CaseState["phase"] };
     case "SAFETY_CHECK_SET":
       return { ...state, safety: { ...state.safety, [p.item as string]: p.value as boolean } };
+    case "WHO_CHECK_SET":
+      return { ...state, who: { ...state.who, [p.item as string]: p.value as boolean } };
     case "MONITORING_SELECTED":
       return {
         ...state,

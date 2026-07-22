@@ -9,6 +9,7 @@ import { BloodProductModal } from "../components/BloodProductModal";
 import { LabModal } from "../components/LabModal";
 import { hhmm, nowLocalInput, isoFromLocalInput, isoToLocalInput } from "../utils/time";
 import { formatNum } from "../domain/calculations";
+import { EXPOSURE_OPTIONS, insensibleLoss, WHO_PHASES } from "../domain/clinical";
 
 interface Props {
   cs: CaseState;
@@ -50,7 +51,12 @@ export function Phase2({ cs, onToast, onAddVitalsAt }: Props) {
         </button>
       </div>
 
-      {tab === "safety" && <SafetySection cs={cs} />}
+      {tab === "safety" && (
+        <>
+          <SafetySection cs={cs} />
+          <WhoSection cs={cs} />
+        </>
+      )}
       {tab === "monitor" && <MonitorSection cs={cs} />}
       {tab === "technique" && <TechniqueSection cs={cs} />}
       {tab === "record" && <RecordSection cs={cs} onToast={onToast} />}
@@ -94,6 +100,47 @@ function SafetySection({ cs }: { cs: CaseState }) {
               </button>
             </div>
           </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ---------------- Checklist quirúrgico de la OMS ---------------- */
+function WhoSection({ cs }: { cs: CaseState }) {
+  const append = useStore((s) => s.append);
+  function set(key: string, value: boolean) {
+    append(cs.caseId, "WHO_CHECK_SET", { item: key, value });
+  }
+  const total = WHO_PHASES.reduce((n, p) => n + p.items.length, 0);
+  const done = WHO_PHASES.reduce((n, p) => n + p.items.filter((it) => cs.who[it.key] === true).length, 0);
+  return (
+    <div className="card">
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <h2 style={{ flex: 1 }}>Checklist quirúrgico de la OMS</h2>
+        <span className="muted" style={{ fontSize: 13 }}>
+          {done}/{total}
+        </span>
+      </div>
+      <p className="sub">Lista de verificación de seguridad quirúrgica (3 fases). Marca cada punto verificado.</p>
+      {WHO_PHASES.map((ph) => (
+        <div key={ph.phase} style={{ marginBottom: 12 }}>
+          <div className="section-title" style={{ margin: "6px 0" }}>{ph.phase}</div>
+          {ph.items.map((it) => {
+            const checked = cs.who[it.key] === true;
+            return (
+              <div className="check-row" key={it.key}>
+                <span className="label">{it.label}</span>
+                <button
+                  className={`btn ${checked ? "primary" : "ghost"}`}
+                  style={{ minWidth: 128, minHeight: 40 }}
+                  onClick={() => set(it.key, !checked)}
+                >
+                  {checked ? "✓ Verificado" : "Marcar"}
+                </button>
+              </div>
+            );
+          })}
         </div>
       ))}
     </div>
@@ -307,6 +354,25 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
   const [diuresis, setDiuresis] = useState("");
   const [balTime, setBalTime] = useState(nowLocalInput());
 
+  // Calculadora de pérdidas insensibles / evaporativas
+  const [exposureId, setExposureId] = useState(EXPOSURE_OPTIONS[1].id);
+  const [temp, setTemp] = useState("");
+  const [insHours, setInsHours] = useState("");
+  const defaultHours = Math.max(0, ((cs.endedAt ? new Date(cs.endedAt).getTime() : Date.now()) - new Date(cs.createdAt).getTime()) / 3600000);
+  const insWeight = cs.preop.weightKg ?? 0;
+  const insHoursVal = insHours ? parseFloat(insHours.replace(",", ".")) : Math.round(defaultHours * 10) / 10;
+  const exposure = EXPOSURE_OPTIONS.find((e) => e.id === exposureId) ?? EXPOSURE_OPTIONS[1];
+  const tempC = temp ? parseFloat(temp.replace(",", ".")) : undefined;
+  const insEstimate = insWeight > 0 && insHoursVal > 0 ? insensibleLoss(insWeight, insHoursVal, exposure.mlKgH, tempC) : null;
+
+  function addInsensible() {
+    if (insEstimate == null) return;
+    const at = isoFromLocalInput(balTime);
+    const note = `${exposure.label} · ${exposure.mlKgH} ml/kg/h · ${insWeight} kg · ${formatNum(insHoursVal)} h${tempC && tempC > 37 ? ` · Tª ${formatNum(tempC)}°C` : ""}`;
+    append(cs.caseId, "BALANCE", { id: "bal-" + Date.now(), at, insensibleMl: insEstimate, insensibleNote: note }, at);
+    onToast?.("Pérdidas insensibles registradas");
+  }
+
   function addBalance() {
     const b = parseFloat(bleeding.replace(",", "."));
     const d = parseFloat(diuresis.replace(",", "."));
@@ -326,6 +392,7 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
 
   const totalBleeding = cs.balances.reduce((s, x) => s + (x.bleedingMl ?? 0), 0);
   const totalDiuresis = cs.balances.reduce((s, x) => s + (x.diuresisMl ?? 0), 0);
+  const totalInsensible = cs.balances.reduce((s, x) => s + (x.insensibleMl ?? 0), 0);
 
   function milestone(label: string) {
     append(cs.caseId, "MILESTONE", { id: "m-" + Date.now(), at: new Date().toISOString(), label });
@@ -493,9 +560,55 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
         <button className="btn block" onClick={addBalance} disabled={!bleeding && !diuresis}>
           + Añadir al balance
         </button>
+
+        <div className="section-title" style={{ margin: "16px 0 6px" }}>Calculadora de pérdidas insensibles</div>
+        <p className="sub">Estimación evaporativa según exposición quirúrgica, tiempo y temperatura. Orientativa.</p>
+        <div className="field">
+          <label>Tipo de exposición quirúrgica</label>
+          <select value={exposureId} onChange={(e) => setExposureId(e.target.value)}>
+            {EXPOSURE_OPTIONS.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label} ({o.mlKgH} ml/kg/h)
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="row">
+          <div className="field">
+            <label>Duración (h){!insHours && insWeight > 0 ? " · auto" : ""}</label>
+            <input inputMode="decimal" type="text" value={insHours} onChange={(e) => setInsHours(e.target.value)} placeholder={formatNum(Math.round(defaultHours * 10) / 10)} />
+          </div>
+          <div className="field">
+            <label>Temperatura (°C, opcional)</label>
+            <input inputMode="decimal" type="text" value={temp} onChange={(e) => setTemp(e.target.value)} placeholder="Ej. 38" />
+          </div>
+        </div>
+        {insWeight <= 0 ? (
+          <div className="alert danger">Registra el peso del paciente (Fase 1) para calcular las pérdidas insensibles.</div>
+        ) : insEstimate != null ? (
+          <>
+            <div className="calc-box">
+              <div className="muted" style={{ fontSize: 13 }}>Pérdidas insensibles estimadas</div>
+              <div className="big">≈ {insEstimate} ml</div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                {exposure.mlKgH} ml/kg/h × {insWeight} kg × {formatNum(insHoursVal)} h{tempC && tempC > 37 ? ` × recargo fiebre` : ""}
+              </div>
+            </div>
+            <button className="btn block" onClick={addInsensible}>
+              + Registrar en el balance
+            </button>
+          </>
+        ) : null}
+
         {cs.balances.length > 0 && (
           <div className="alert" style={{ marginTop: 10 }}>
             Total sangrado: <strong>{totalBleeding} ml</strong> · Total diuresis: <strong>{totalDiuresis} ml</strong>
+            {totalInsensible > 0 && (
+              <>
+                {" "}
+                · Pérdidas insensibles: <strong>{totalInsensible} ml</strong>
+              </>
+            )}
           </div>
         )}
       </div>

@@ -15,6 +15,36 @@ const PALETTE = ["#0ea5e9", "#f59e0b", "#22c55e", "#ec4899", "#8b5cf6", "#14b8a6
 // SpO2 se retira de la gráfica y pasa a la cronología de constantes.
 export const CHARTED = new Set(["FC", "TAS", "TAD", "TAM"]);
 
+// Abreviaturas de hitos frecuentes para rotularlos de forma legible en la gráfica.
+const MS_CODES: { match: RegExp; code: string }[] = [
+  { match: /entrada|quir[oó]fano/i, code: "ENT" },
+  { match: /monitor/i, code: "MON" },
+  { match: /preox/i, code: "PRE" },
+  { match: /inducc/i, code: "IND" },
+  { match: /intub/i, code: "IOT" },
+  { match: /mascarilla|lar[ií]ngea|lma/i, code: "LMA" },
+  { match: /incisi[oó]n|inicio.*cirug/i, code: "INC" },
+  { match: /fin.*cirug|cierre/i, code: "FIN" },
+  { match: /extub/i, code: "EXT" },
+  { match: /despertar|educci[oó]n/i, code: "DES" },
+  { match: /torniquete/i, code: "TQ" },
+  { match: /clampaje|clamp/i, code: "CLP" },
+];
+
+function milestoneCode(label: string): string {
+  for (const c of MS_CODES) if (c.match.test(label)) return c.code;
+  // Personalizado: iniciales de hasta 3 palabras significativas.
+  const code = label
+    .replace(/[^0-9A-Za-zÁÉÍÓÚÜÑáéíóúüñ ]/g, "")
+    .split(/\s+/)
+    .filter((w) => w.length > 1)
+    .slice(0, 3)
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase();
+  return code || label.slice(0, 3).toUpperCase() || "H";
+}
+
 function col(code: string, light?: boolean): string {
   const dark: Record<string, string> = { TAS: "#f87171", TAD: "#fb923c", TAM: "#facc15", FC: "#34d399", SPO2: "#38bdf8" };
   const lite: Record<string, string> = { TAS: "#dc2626", TAD: "#ea580c", TAM: "#b45309", FC: "#059669", SPO2: "#0284c7" };
@@ -77,9 +107,13 @@ export function AnesthesiaChart({ cs, light, onTimeClick }: Props) {
   const TICKS = 6;
   const ticks = Array.from({ length: TICKS + 1 }, (_, i) => model.t0 + (model.span * i) / TICKS);
   const events = [
-    ...cs.milestones.map((m) => ({ at: m.at, label: m.label, color: light ? "#0e7c7b" : "#2dd4bf" })),
-    ...cs.incidents.map((i) => ({ at: i.at, label: "⚠ Incidencia", color: "#ef4444" })),
+    ...cs.milestones.map((m) => ({ at: m.at, code: milestoneCode(m.label), full: m.label, color: light ? "#0e7c7b" : "#2dd4bf" })),
+    ...cs.incidents.map((i) => ({ at: i.at, code: "⚠", full: "Incidencia", color: "#ef4444" })),
   ].sort((a, b) => a.at.localeCompare(b.at));
+  // Leyenda de hitos: código -> etiqueta (solo hitos, sin duplicados).
+  const milestoneLegend = Array.from(
+    new Map(cs.milestones.map((m) => [milestoneCode(m.label), m.label])).entries(),
+  );
   const tamPts = model.vitals.filter((v) => typeof v.values.TAM === "number").map((v) => `${X(v.at)},${Y(v.values.TAM)}`);
 
   function handleClick(e: MouseEvent<SVGSVGElement>) {
@@ -116,8 +150,8 @@ export function AnesthesiaChart({ cs, light, onTimeClick }: Props) {
         {events.map((ev, i) => (
           <g key={"ev" + i}>
             <line x1={X(ev.at)} y1={hemoTop} x2={X(ev.at)} y2={lanesBottom} stroke={ev.color} strokeWidth={1} strokeDasharray="3 2" opacity={0.85} />
-            <text x={X(ev.at)} y={hemoTop - 6} fontSize={12.5} fill={ev.color} textAnchor="start" transform={`rotate(-30 ${X(ev.at)} ${hemoTop - 6})`}>
-              {ev.label.length > 20 ? ev.label.slice(0, 19) + "…" : ev.label}
+            <text x={X(ev.at)} y={hemoTop - 6} fontSize={13} fontWeight={700} fill={ev.color} textAnchor="middle">
+              {ev.code}
             </text>
           </g>
         ))}
@@ -205,6 +239,17 @@ export function AnesthesiaChart({ cs, light, onTimeClick }: Props) {
         <span style={{ color: light ? "#0e7c7b" : "#2dd4bf" }}>┊ hitos</span>
         <span style={{ color: "#ef4444" }}>┊ incidencias</span>
       </div>
+
+      {/* Leyenda de abreviaturas de hitos */}
+      {milestoneLegend.length > 0 && (
+        <div className="anes-legend anes-legend-ms">
+          {milestoneLegend.map(([code, label]) => (
+            <span key={code} style={{ color: light ? "#0e7c7b" : "#2dd4bf" }}>
+              <b>{code}</b> = {label}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

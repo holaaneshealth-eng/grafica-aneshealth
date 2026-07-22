@@ -933,3 +933,30 @@ textarea {
   font-size: 11px;
   gap: 10px;
 }
+.anes-legend-ms {
+  font-size: 12px;
+  font-weight: 500;
+  opacity: 0.92;
+  border-top: 1px dashed var(--line);
+  padding-top: 6px;
+}
+.anes-legend-ms b {
+  font-weight: 700;
+}
+.sheet .anes-legend-ms {
+  font-size: 10px;
+}
+/* Tabla de la calculadora pediátrica */
+.mini-table th,
+.mini-table td {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.mini-table th {
+  color: var(--text-dim);
+  font-weight: 700;
+}
+.seg {
+  flex-wrap: wrap;
+}

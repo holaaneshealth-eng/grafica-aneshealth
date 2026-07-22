@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useStore } from "../store/store";
 import type { CaseState } from "../domain/events";
 import { isoFromLocalInput, isoToLocalInput } from "../utils/time";
+import { YesNo } from "../components/YesNo";
 
 interface Props {
   cs: CaseState;
@@ -18,6 +19,7 @@ export function Phase1({ cs }: Props) {
   const [antibioticTime, setAntibioticTime] = useState(
     cs.preop.antibioticTime ? isoToLocalInput(cs.preop.antibioticTime) : "",
   );
+  const [breastfeeding, setBreastfeeding] = useState<boolean | null>(cs.preop.breastfeeding ?? null);
 
   // Autosave con debounce: cada cambio genera un evento PREOP_INFO_RECORDED.
   useEffect(() => {
@@ -30,11 +32,12 @@ export function Phase1({ cs }: Props) {
         medication,
         antibiotic,
         antibioticTime: antibiotic.trim() && antibioticTime ? isoFromLocalInput(antibioticTime) : null,
+        breastfeeding,
       });
     }, 700);
     return () => clearTimeout(h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allergies, height, weight, history, medication, antibiotic, antibioticTime]);
+  }, [allergies, height, weight, history, medication, antibiotic, antibioticTime, breastfeeding]);
 
   return (
     <div>
@@ -91,6 +94,17 @@ export function Phase1({ cs }: Props) {
             <label>Hora de administración</label>
             <input type="datetime-local" value={antibioticTime} onChange={(e) => setAntibioticTime(e.target.value)} />
           </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <h2 style={{ fontSize: 16 }}>Lactancia materna</h2>
+        <p className="sub">
+          Márcalo para activar alertas de compatibilidad de fármacos durante el caso (orientativas, fuente: e-lactancia.org).
+        </p>
+        <div className="field">
+          <label>¿Lactancia materna activa?</label>
+          <YesNo value={breastfeeding} onChange={setBreastfeeding} />
         </div>
       </div>
     </div>

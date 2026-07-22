@@ -7,6 +7,7 @@ import { computeInfusion, formatNum, type DoseRateUnit, type MassUnit } from "..
 import { useStore } from "../store/store";
 import type { CaseState, InfusionRecord } from "../domain/events";
 import { nowLocalInput, isoFromLocalInput, durationBetween } from "../utils/time";
+import { lactationFor, PED_DOSES, type PedDose } from "../domain/clinical";
 
 interface Props {
   cs: CaseState;
@@ -14,7 +15,7 @@ interface Props {
   onDone: (msg: string) => void;
 }
 
-type Mode = "bolus" | "infusion" | "plantillas";
+type Mode = "bolus" | "infusion" | "plantillas" | "pediatrica";
 const DOSE_UNITS: DoseRateUnit[] = ["mcg/kg/min", "mcg/kg/h", "mg/kg/h", "mg/kg/min"];
 const FLUID_VOLUME = 500;
 
@@ -59,6 +60,17 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
     if (!a || d.length < 3) return false;
     return a.includes(d) || d.split(/\s+/).some((w) => w.length >= 4 && a.includes(w));
   }, [cs.preop.allergies, drug]);
+
+  // Alerta de compatibilidad con lactancia (solo si la lactancia está marcada).
+  const lactationHit = useMemo(() => {
+    if (cs.preop.breastfeeding !== true || drug.trim().length < 3) return null;
+    const info = lactationFor(drug);
+    if (!info || info.level === "compatible") return null;
+    return info;
+  }, [cs.preop.breastfeeding, drug]);
+
+  // Peso para la calculadora pediátrica.
+  const [pedWeight, setPedWeight] = useState(cs.preop.weightKg ? String(cs.preop.weightKg) : "");
 
   // Fármacos recientes (por recencia de uso), filtrados según el modo actual.
   const recents = useMemo(() => {
@@ -234,7 +246,7 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
   }
 
   const showChangeMode = mode === "infusion" && !!activeInf;
-  const chipDrugs = mode === "plantillas" ? [] : drugsForMode(mode);
+  const chipDrugs = mode === "plantillas" || mode === "pediatrica" ? [] : drugsForMode(mode);
 
   return (
     <Modal title="Administrar fármaco" onClose={onClose}>
@@ -245,8 +257,11 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
         <button className={mode === "infusion" ? "on" : ""} onClick={() => setMode("infusion")}>
           Perfusión
         </button>
-        <button className={mode === "plantillas" ? "on" : ""} onClick={() => setMode("plantillas")}>
+        <button className={mode === "plantillas" ? "on" : ""} onClick={() => setMode("plantillas")} disabled={showChangeMode}>
           Plantillas
+        </button>
+        <button className={mode === "pediatrica" ? "on" : ""} onClick={() => setMode("pediatrica")} disabled={showChangeMode}>
+          Pediátrica
         </button>
       </div>
 
@@ -260,6 +275,8 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
             setMode("infusion");
           }}
         />
+      ) : mode === "pediatrica" ? (
+        <PediatricCalculator weight={pedWeight} onWeight={setPedWeight} />
       ) : (
         <>
           <div className="field">
@@ -292,6 +309,17 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
           {allergyHit && (
             <div className="alert danger">
               Aviso de seguridad: este fármaco podría coincidir con una alergia registrada ("{cs.preop.allergies}"). Verifica antes de administrar.
+            </div>
+          )}
+
+          {lactationHit && (
+            <div className={`alert ${lactationHit.level === "evitar" ? "danger" : ""}`}>
+              Lactancia materna: {lactationHit.level === "evitar" ? "compatibilidad DESFAVORABLE" : "usar con precaución"}
+              {lactationHit.note ? ` — ${lactationHit.note}` : ""}. Consulta la ficha en{" "}
+              <a href={`https://www.e-lactancia.org/breastfeeding/${encodeURIComponent(drug.trim().toLowerCase())}/product/`} target="_blank" rel="noreferrer">
+                e-lactancia.org
+              </a>
+              . Dato orientativo.
             </div>
           )}
 
@@ -513,4 +541,55 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
 
 function rid(): string {
   return "r-" + Math.random().toString(36).slice(2, 10);
+}
+
+function formatPedDose(pd: PedDose, w: number): string {
+  const total = pd.perKg * w;
+  const capped = pd.max != null ? Math.min(total, pd.max) : total;
+  const val = formatNum(Math.round(capped * 100) / 100);
+  const perKg = `${formatNum(pd.perKg)} ${pd.unit}/kg`;
+  if (pd.isMax) return `máx ${val} ${pd.unit} (${perKg})`;
+  const capNote = pd.max != null && total > pd.max ? ` · tope ${formatNum(pd.max)} ${pd.unit}` : "";
+  return `${val} ${pd.unit} (${perKg})${capNote}`;
+}
+
+function PediatricCalculator({ weight, onWeight }: { weight: string; onWeight: (v: string) => void }) {
+  const w = parseFloat(weight.replace(",", "."));
+  const valid = isFinite(w) && w > 0;
+  const entries = Object.entries(PED_DOSES);
+  return (
+    <div>
+      <div className="alert">
+        Calculadora auxiliar de dosis pediátrica. <b>Orientativa</b>: verifica siempre con protocolos y ficha técnica. Los anestésicos locales
+        muestran la <b>dosis máxima</b> de seguridad.
+      </div>
+      <div className="field">
+        <label>Peso (kg)</label>
+        <input inputMode="decimal" type="text" value={weight} onChange={(e) => onWeight(e.target.value)} placeholder="Ej. 18" autoFocus />
+      </div>
+      {!valid ? (
+        <div className="empty">Introduce el peso para calcular las dosis.</div>
+      ) : (
+        <table className="mini-table" style={{ width: "100%", fontSize: 13 }}>
+          <thead>
+            <tr>
+              <th style={{ textAlign: "left" }}>Fármaco</th>
+              <th style={{ textAlign: "left" }}>Dosis estimada</th>
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map(([name, pd]) => (
+              <tr key={name}>
+                <td style={{ paddingRight: 8 }}>{name}</td>
+                <td>
+                  {formatPedDose(pd, w)}
+                  {pd.note ? <span className="muted"> · {pd.note}</span> : null}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
 }

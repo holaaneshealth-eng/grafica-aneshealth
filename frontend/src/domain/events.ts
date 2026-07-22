@@ -9,6 +9,7 @@ export type EventType =
   | "PREOP_INFO_RECORDED"
   | "PHASE_COMPLETED"
   | "SAFETY_CHECK_SET"
+  | "WHO_CHECK_SET"
   | "MONITORING_SELECTED"
   | "TECHNIQUE_ADDED"
   | "DRUG_BOLUS"
@@ -48,7 +49,11 @@ export interface PreopInfo {
   medication: string;
   antibiotic: string;
   antibioticTime: string | null; // ISO
+  breastfeeding: boolean | null; // lactancia materna activa
 }
+
+// Checklist quirúrgico de la OMS: mapa item -> marcado.
+export type WhoChecklist = Record<string, boolean>;
 
 export interface SafetyChecklist {
   monitorChecked: boolean | null;
@@ -152,6 +157,8 @@ export interface BalanceRecord {
   at: string;
   bleedingMl?: number; // sangrado
   diuresisMl?: number; // diuresis
+  insensibleMl?: number; // pérdidas insensibles estimadas
+  insensibleNote?: string; // detalle del cálculo (exposición, Tª, tiempo)
 }
 
 // Estado proyectado (vista materializada) de un caso.
@@ -164,6 +171,7 @@ export interface CaseState {
   phase: Phase;
   preop: PreopInfo;
   safety: SafetyChecklist;
+  who: WhoChecklist;
   monitoring: MonitoringSelection;
   techniques: TechniqueRecord[];
   boluses: BolusRecord[];
@@ -187,8 +195,9 @@ export function emptyCaseState(caseId: string, ia: string, year: number, ordinal
     ordinal,
     createdAt,
     phase: "PREOP",
-    preop: { allergies: "", heightCm: null, weightKg: null, history: "", medication: "", antibiotic: "", antibioticTime: null },
+    preop: { allergies: "", heightCm: null, weightKg: null, history: "", medication: "", antibiotic: "", antibioticTime: null, breastfeeding: null },
     safety: { monitorChecked: null, ventilatorChecked: null, suctionReady: null, ambuReady: null },
+    who: {},
     monitoring: { standard: [], custom: [] },
     techniques: [],
     boluses: [],
