@@ -69,7 +69,11 @@ export function MedicationTimeline({ cs, light }: Props) {
                       .filter((c) => !c.stop)
                       .map((c, ci) => (
                         <span className="medtl-rate" key={ci} style={{ left: `${clamp(pct(c.at))}%`, color }}>
-                          {inf.gas ? `${formatNum(c.gasPercent ?? 0)}%` : `${formatNum(c.rateMlH)} ml/h`}
+                          {inf.gas
+                            ? `${formatNum(c.gasPercent ?? 0)}%`
+                            : inf.fluid
+                              ? `${inf.volumeMl ?? 500} ml`
+                              : `${formatNum(c.rateMlH)} ml/h`}
                         </span>
                       ))}
                   </div>
@@ -78,7 +82,7 @@ export function MedicationTimeline({ cs, light }: Props) {
               {boluses.map((b) => (
                 <div key={b.id}>
                   <span className="medtl-bolus-dose" style={{ left: `${clamp(pct(b.at))}%`, color }}>
-                    {formatNum(b.dose)} {b.unit}
+                    {b.concentration && b.volumeMl ? `${formatNum(b.volumeMl)} ml ${formatNum(b.concentration)}%` : `${formatNum(b.dose)} ${b.unit}`}
                   </span>
                   <span className="medtl-bolus" style={{ left: `${clamp(pct(b.at))}%`, background: color }} />
                 </div>

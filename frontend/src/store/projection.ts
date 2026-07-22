@@ -100,7 +100,12 @@ function applyEvent(state: CaseState, e: BaseEvent): CaseState {
             ...inf,
             rateMlH: isStop ? inf.rateMlH : (p.rateMlH as number),
             weightBasedDose: isStop ? inf.weightBasedDose : (p.weightBasedDose as number),
-            summary: isStop ? inf.summary : ((p.summary as string) ?? inf.summary),
+            // Al finalizar, "Fin" no sustituye el resumen; pero un resumen calculado (p.ej. suero) sí.
+            summary: isStop
+              ? p.summary && p.summary !== "Fin"
+                ? (p.summary as string)
+                : inf.summary
+              : ((p.summary as string) ?? inf.summary),
             gasPercent: inf.gas && !isStop ? (p.gasPercent as number) : inf.gasPercent,
             active: isStop ? false : inf.active,
             stoppedAt: isStop ? e.occurredAt : inf.stoppedAt,

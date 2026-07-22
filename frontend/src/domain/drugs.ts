@@ -1,12 +1,13 @@
 // Catálogo de fármacos frecuentes (favoritos) para registro rápido.
-// Agrupados por familia. Cada uno con unidad por defecto para minimizar pulsaciones.
 export interface DrugDef {
   name: string;
   group: string;
   defaultUnit: string; // unidad de bolo por defecto
   commonBolus?: number[]; // dosis frecuentes para chips rápidos
   infusionDoseUnit?: string; // unidad típica en perfusión (dosis ponderada)
-  gas?: boolean; // gas anestésico: solo se registra el % en aire espirado (sevoflurano)
+  gas?: boolean; // gas anestésico: solo % en aire espirado (sevoflurano)
+  fluid?: boolean; // suero IV: 500 ml; al finalizar calcula el ritmo medio
+  concVol?: boolean; // bolo neuroaxial: pide concentración (%) y volumen (ml)
 }
 
 export const DRUGS: DrugDef[] = [
@@ -63,16 +64,43 @@ export const DRUGS: DrugDef[] = [
   // Analgésicos / antieméticos / corticoides
   { name: "Paracetamol", group: "Analgésico", defaultUnit: "mg", commonBolus: [1000] },
   { name: "Dexketoprofeno", group: "Analgésico", defaultUnit: "mg", commonBolus: [50] },
+  { name: "Metamizol", group: "Analgésico", defaultUnit: "mg", commonBolus: [2000] },
   { name: "Dexametasona", group: "Corticoide", defaultUnit: "mg", commonBolus: [4, 8] },
   { name: "Ondansetrón", group: "Antiemético", defaultUnit: "mg", commonBolus: [4, 8] },
+  { name: "Droperidol", group: "Antiemético", defaultUnit: "mg", commonBolus: [0.625, 1.25, 2.5] },
 
-  // Anestésicos locales
+  // Anestésicos locales (IV / infiltración)
   { name: "Ropivacaína", group: "Anestésico local", defaultUnit: "mg" },
   { name: "Bupivacaína", group: "Anestésico local", defaultUnit: "mg" },
+  { name: "Lidocaína subcutánea", group: "Anestésico local", defaultUnit: "mg", commonBolus: [20, 40, 100] },
+
+  // Anestésicos locales neuroaxiales (piden concentración % y volumen ml)
+  { name: "Bupivacaína hiperbara intradural", group: "Neuroaxial", defaultUnit: "mg", concVol: true },
+  { name: "Bupivacaína intradural", group: "Neuroaxial", defaultUnit: "mg", concVol: true },
+  { name: "Prilocaína hiperbara intradural", group: "Neuroaxial", defaultUnit: "mg", concVol: true },
+  { name: "Bupivacaína epidural", group: "Neuroaxial", defaultUnit: "mg", concVol: true },
+  { name: "Lidocaína epidural", group: "Neuroaxial", defaultUnit: "mg", concVol: true },
+
+  // Opioides neuroaxiales (dosis simple, sin concentración/volumen)
+  { name: "Fentanilo intradural", group: "Neuroaxial", defaultUnit: "mcg", commonBolus: [10, 15, 25] },
+  { name: "Fentanilo epidural", group: "Neuroaxial", defaultUnit: "mcg", commonBolus: [50, 100] },
+  { name: "Morfina intradural", group: "Neuroaxial", defaultUnit: "mg", commonBolus: [0.1, 0.2, 0.3] },
+  { name: "Morfina epidural", group: "Neuroaxial", defaultUnit: "mg", commonBolus: [1, 2, 3] },
+
+  // Sueros (perfusión IV; 500 ml, ritmo medio al finalizar)
+  { name: "Ringer lactato", group: "Suero", defaultUnit: "ml", fluid: true },
+  { name: "Ringer acetato", group: "Suero", defaultUnit: "ml", fluid: true },
+  { name: "Suero fisiológico", group: "Suero", defaultUnit: "ml", fluid: true },
 ];
 
 export const DRUG_UNITS = ["mg", "mcg", "ml", "UI", "mEq", "g"];
 
 export function drugByName(name: string): DrugDef | undefined {
   return DRUGS.find((d) => d.name.toLowerCase() === name.toLowerCase());
+}
+
+/** Lista de fármacos para el modo indicado, ordenada alfabéticamente. */
+export function drugsForMode(mode: "bolus" | "infusion"): DrugDef[] {
+  const list = DRUGS.filter((d) => (mode === "bolus" ? !d.gas && !d.fluid : d.infusionDoseUnit || d.gas || d.fluid));
+  return list.slice().sort((a, b) => a.name.localeCompare(b.name, "es"));
 }

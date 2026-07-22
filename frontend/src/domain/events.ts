@@ -73,6 +73,8 @@ export interface BolusRecord {
   dose: number;
   unit: string;
   at: string;
+  concentration?: number; // % (anestésicos locales neuroaxiales)
+  volumeMl?: number; // ml administrados (anestésicos locales neuroaxiales)
 }
 
 export interface InfusionRecord {
@@ -92,6 +94,8 @@ export interface InfusionRecord {
   active: boolean;
   gas?: boolean; // sevoflurano
   gasPercent?: number; // % en aire espirado
+  fluid?: boolean; // suero IV (500 ml; ritmo medio al finalizar)
+  volumeMl?: number; // volumen cargado (sueros)
   changes?: InfusionChange[]; // historial de ritmos (incluye el inicial)
 }
 
