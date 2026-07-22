@@ -39,14 +39,21 @@ interface PendingEvent {
 
 function loadQueue(): PendingEvent[] {
   try {
-    return JSON.parse(localStorage.getItem(QUEUE_KEY) ?? "[]");
+    return JSON.parse((typeof localStorage !== "undefined" ? localStorage.getItem(QUEUE_KEY) : null) ?? "[]");
   } catch {
     return [];
   }
 }
 function saveQueue(q: PendingEvent[]): void {
-  localStorage.setItem(QUEUE_KEY, JSON.stringify(q));
+  try {
+    if (typeof localStorage !== "undefined") localStorage.setItem(QUEUE_KEY, JSON.stringify(q));
+  } catch {
+    /* almacenamiento no disponible */
+  }
 }
+
+// Mutex: evita que varios flush() concurrentes pisen la cola / descarten eventos optimistas.
+let flushing = false;
 
 export function daysUntilPurge(lastActivity: string): number {
   const expiresAt = new Date(lastActivity).getTime() + RETENTION_DAYS * DAY_MS;
@@ -184,36 +191,64 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   flush: async () => {
-    if (!get().online) return;
-    const queue = get().pending;
-    if (queue.length === 0) return;
-    const remaining: PendingEvent[] = [];
-    for (const p of queue) {
-      try {
-        await api.appendEvent(p.caseId, { eventId: p.eventId, type: p.type, occurredAt: p.occurredAt, payload: p.payload });
-      } catch (err) {
-        // Si es un error de permiso/validacion, se descarta (no reintentable). Si es de red, se conserva.
-        const status = (err as { status?: number }).status;
-        if (status && status >= 400 && status < 500) {
-          // descartar y revertir el evento optimista
-          set((s) => ({ events: s.events.filter((e) => e.eventId !== p.eventId) }));
-          continue;
+    if (!get().online || flushing) return; // un solo flush a la vez
+    flushing = true;
+    try {
+      // Drena la cola. Se relee get().pending en cada vuelta para incluir lo que
+      // se haya anadido durante los envios (p.ej. al marcar varias constantes seguidas).
+      while (true) {
+        const queue = get().pending;
+        if (queue.length === 0) break;
+        const doneIds: string[] = []; // enviados o descartados (salen de la cola)
+        const revertIds: string[] = []; // 4xx -> revertir el evento optimista
+        let netError = false;
+        for (const p of queue) {
+          try {
+            await api.appendEvent(p.caseId, { eventId: p.eventId, type: p.type, occurredAt: p.occurredAt, payload: p.payload });
+            doneIds.push(p.eventId);
+          } catch (err) {
+            const status = (err as { status?: number }).status;
+            if (status && status >= 400 && status < 500) {
+              doneIds.push(p.eventId);
+              revertIds.push(p.eventId); // no reintentable: se descarta y se revierte
+            } else {
+              netError = true; // error de red: se conserva para reintentar
+            }
+          }
         }
-        remaining.push(p);
+        const processed = new Set(doneIds);
+        const revert = new Set(revertIds);
+        const newPending = get().pending.filter((q) => !processed.has(q.eventId));
+        saveQueue(newPending);
+        set((s) => ({
+          pending: newPending,
+          events: revert.size ? s.events.filter((e) => !revert.has(e.eventId)) : s.events,
+        }));
+        if (netError) break; // no seguir el bucle si falla la red
       }
-    }
-    saveQueue(remaining);
-    set({ pending: remaining });
-    // Refresca el estado del caso activo desde el servidor tras sincronizar.
-    const active = get().activeCaseId;
-    if (active && remaining.length === 0) {
-      try {
-        const { events } = await api.getEvents(active);
-        set((s) => ({ events: [...s.events.filter((e) => e.caseId !== active), ...events.map(toBaseEvent)] }));
-        await get().refreshCases();
-      } catch {
-        /* ignore */
+
+      // Reconciliacion con el servidor SOLO si no queda nada pendiente.
+      // Se conservan los eventos locales aun no confirmados (por si llegan durante el await).
+      const active = get().activeCaseId;
+      if (active && get().pending.length === 0) {
+        try {
+          const { events } = await api.getEvents(active);
+          const serverMapped = events.map(toBaseEvent);
+          const serverIds = new Set(serverMapped.map((e) => e.eventId));
+          set((s) => {
+            const pendingIds = new Set(s.pending.map((q) => q.eventId));
+            const localKeep = s.events.filter(
+              (e) => e.caseId === active && !serverIds.has(e.eventId) && pendingIds.has(e.eventId),
+            );
+            return { events: [...s.events.filter((e) => e.caseId !== active), ...serverMapped, ...localKeep] };
+          });
+          await get().refreshCases();
+        } catch {
+          /* ignore */
+        }
       }
+    } finally {
+      flushing = false;
     }
   },
 
