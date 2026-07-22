@@ -87,15 +87,51 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
     }
   }
 
-  async function exportPNG() {
+  // Exporta la hoja como imagen garantizando un tamaño <= 870 KB (PNG o, si no cabe, JPG).
+  async function exportImage() {
     setBusy(true);
     try {
-      const canvas = await renderCanvas();
+      const LIMIT = 870 * 1024;
+      const base = await renderCanvas();
+      const toBlob = (c: HTMLCanvasElement, type: string, q?: number) =>
+        new Promise<Blob>((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error("blob"))), type, q));
+      const scaleCanvas = (src: HTMLCanvasElement, f: number) => {
+        const c = document.createElement("canvas");
+        c.width = Math.max(1, Math.round(src.width * f));
+        c.height = Math.max(1, Math.round(src.height * f));
+        const ctx = c.getContext("2d")!;
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, c.width, c.height);
+        ctx.imageSmoothingQuality = "high";
+        ctx.drawImage(src, 0, 0, c.width, c.height);
+        return c;
+      };
+
+      let blob = await toBlob(base, "image/png");
+      let ext = "png";
+      // Si el PNG supera el límite, pasamos a JPG bajando calidad.
+      if (blob.size > LIMIT) {
+        ext = "jpg";
+        for (const q of [0.92, 0.85, 0.75, 0.65, 0.55]) {
+          blob = await toBlob(base, "image/jpeg", q);
+          if (blob.size <= LIMIT) break;
+        }
+      }
+      // Si aún no cabe, reducimos escala progresivamente (manteniéndolo legible).
+      let f = 0.85;
+      while (blob.size > LIMIT && f >= 0.3) {
+        blob = await toBlob(scaleCanvas(base, f), "image/jpeg", 0.7);
+        ext = "jpg";
+        f -= 0.15;
+      }
+
+      const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
-      link.download = `hoja-anestesica-${cs.ia}.png`;
-      link.href = canvas.toDataURL("image/png");
+      link.download = `hoja-anestesica-${cs.ia}.${ext}`;
+      link.href = url;
       link.click();
-      onToast("Imagen generada");
+      URL.revokeObjectURL(url);
+      onToast(`Imagen ${ext.toUpperCase()} · ${Math.round(blob.size / 1024)} KB`);
     } finally {
       setBusy(false);
     }
@@ -145,7 +181,7 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
           <button className="btn primary lg" onClick={exportPDF} disabled={busy}>
             {busy ? "Generando..." : "Descargar PDF"}
           </button>
-          <button className="btn lg" onClick={exportPNG} disabled={busy}>
+          <button className="btn lg" onClick={exportImage} disabled={busy}>
             Descargar imagen
           </button>
           <button className="btn lg" onClick={() => window.print()}>
