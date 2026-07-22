@@ -69,16 +69,44 @@ function applyEvent(state: CaseState, e: BaseEvent): CaseState {
       return { ...state, techniques: [...state.techniques, p as unknown as TechniqueRecord] };
     case "DRUG_BOLUS":
       return { ...state, boluses: [...state.boluses, p as unknown as BolusRecord] };
-    case "INFUSION_STARTED":
-      return { ...state, infusions: [...state.infusions, p as unknown as InfusionRecord] };
+    case "INFUSION_STARTED": {
+      const rec = p as unknown as InfusionRecord;
+      const initial = {
+        at: rec.startedAt,
+        rateMlH: rec.rateMlH,
+        weightBasedDose: rec.weightBasedDose,
+        doseUnit: rec.doseUnit,
+        summary: rec.summary,
+        gasPercent: rec.gasPercent,
+      };
+      return { ...state, infusions: [...state.infusions, { ...rec, changes: [initial] }] };
+    }
     case "INFUSION_RATE_CHANGED":
       return {
         ...state,
-        infusions: state.infusions.map((inf) =>
-          inf.id === p.id
-            ? { ...inf, rateMlH: p.rateMlH as number, weightBasedDose: p.weightBasedDose as number, summary: p.summary as string }
-            : inf,
-        ),
+        infusions: state.infusions.map((inf) => {
+          if (inf.id !== p.id) return inf;
+          const isStop = inf.gas ? p.gasPercent === 0 : p.rateMlH === 0;
+          const change = {
+            at: e.occurredAt,
+            rateMlH: (p.rateMlH as number) ?? 0,
+            weightBasedDose: (p.weightBasedDose as number) ?? 0,
+            doseUnit: (p.doseUnit as string) ?? inf.doseUnit,
+            summary: (p.summary as string) ?? inf.summary,
+            gasPercent: p.gasPercent as number | undefined,
+            stop: isStop,
+          };
+          return {
+            ...inf,
+            rateMlH: isStop ? inf.rateMlH : (p.rateMlH as number),
+            weightBasedDose: isStop ? inf.weightBasedDose : (p.weightBasedDose as number),
+            summary: isStop ? inf.summary : ((p.summary as string) ?? inf.summary),
+            gasPercent: inf.gas && !isStop ? (p.gasPercent as number) : inf.gasPercent,
+            active: isStop ? false : inf.active,
+            stoppedAt: isStop ? e.occurredAt : inf.stoppedAt,
+            changes: [...(inf.changes ?? []), change],
+          };
+        }),
       };
     case "INFUSION_STOPPED":
       return {
@@ -146,9 +174,17 @@ export function buildTimeline(events: BaseEvent[]): TimelineItem[] {
           detail: p.summary as string,
         });
         break;
-      case "INFUSION_RATE_CHANGED":
-        items.push({ id: e.eventId, at: e.occurredAt, kind: "infusion", label: `Cambio ritmo ${p.drug}`, detail: p.summary as string });
+      case "INFUSION_RATE_CHANGED": {
+        const stop = p.gasPercent !== undefined ? p.gasPercent === 0 : p.rateMlH === 0;
+        items.push({
+          id: e.eventId,
+          at: e.occurredAt,
+          kind: "infusion",
+          label: stop ? `Fin perfusión ${p.drug}` : `Cambio ritmo ${p.drug}`,
+          detail: stop ? undefined : (p.summary as string),
+        });
         break;
+      }
       case "INFUSION_STOPPED":
         items.push({ id: e.eventId, at: e.occurredAt, kind: "infusion", label: `Fin perfusión ${p.drug}` });
         break;

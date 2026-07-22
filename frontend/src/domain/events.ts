@@ -92,6 +92,17 @@ export interface InfusionRecord {
   active: boolean;
   gas?: boolean; // sevoflurano
   gasPercent?: number; // % en aire espirado
+  changes?: InfusionChange[]; // historial de ritmos (incluye el inicial)
+}
+
+export interface InfusionChange {
+  at: string;
+  rateMlH: number;
+  weightBasedDose: number;
+  doseUnit: string;
+  summary: string;
+  gasPercent?: number;
+  stop?: boolean;
 }
 
 export interface VitalsRecord {

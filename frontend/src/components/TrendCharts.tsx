@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import type { CaseState } from "../domain/events";
 import { STANDARD_PARAMS, findParam } from "../domain/monitoring";
 import { hhmm } from "../utils/time";
@@ -7,62 +7,16 @@ import { hhmm } from "../utils/time";
 interface Props {
   cs: CaseState;
   light?: boolean;
-  maxPoints?: number; // agrega los datos a un máximo de puntos (para A4)
+  maxPoints?: number;
 }
 
 type Row = Record<string, number | string>;
 
-interface Series {
-  code: string;
-  label: string;
-  axis: "left" | "right";
-}
-interface ChartDef {
-  title: string;
-  series: Series[];
-}
-
-// Gráficas agrupadas por sistema fisiológico. Las unidades distintas usan doble eje.
-const CHART_DEFS: ChartDef[] = [
-  {
-    title: "Presión arterial y FC (mmHg · lpm)",
-    series: [
-      { code: "TAS", label: "TAS", axis: "left" },
-      { code: "TAD", label: "TAD", axis: "left" },
-      { code: "TAM", label: "TAM", axis: "left" },
-      { code: "FC", label: "FC", axis: "left" },
-    ],
-  },
-  {
-    title: "Oxigenación y ventilación",
-    series: [
-      { code: "SPO2", label: "SpO₂ %", axis: "left" },
-      { code: "FIO2", label: "O₂ %", axis: "left" },
-      { code: "ETCO2", label: "ETCO₂ mmHg", axis: "right" },
-    ],
-  },
-  {
-    title: "Presiones de vía aérea (cmH₂O)",
-    series: [
-      { code: "PPICO", label: "P. pico", axis: "left" },
-      { code: "PEEP", label: "PEEP", axis: "left" },
-    ],
-  },
-  {
-    title: "BIS y temperatura",
-    series: [
-      { code: "BIS", label: "BIS", axis: "left" },
-      { code: "TEMP", label: "Tª °C", axis: "right" },
-    ],
-  },
-];
-
-// Parámetros que NO generan gráfica (baja variabilidad); quedan en el registro seriado.
-const TABLE_ONLY = new Set(["VT", "FR", "PVC"]);
+// Parámetros que se representan en la gráfica (el resto va al registro seriado).
+export const CHARTED = new Set(["FC", "TAS", "TAD", "TAM", "SPO2"]);
 
 const colorOf = (code: string): string => STANDARD_PARAMS.find((p) => p.code === code)?.color ?? "#14b8a6";
 
-/** Agrega los datos a `max` puntos promediando por tramos (más agregación cuanto más larga la cirugía). */
 function downsample(data: Row[], max: number): Row[] {
   if (data.length <= max) return data;
   const bucket = data.length / max;
@@ -84,6 +38,26 @@ function downsample(data: Row[], max: number): Row[] {
   return out;
 }
 
+// Marcadores personalizados (rombo para FC, cruz para SpO2) sin línea continua.
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function diamondDot(color: string) {
+  return (p: any) => {
+    if (p.cx == null || p.cy == null || p.value == null) return <g key={p.key ?? p.index} />;
+    const { cx, cy } = p;
+    return <path key={p.key ?? p.index} d={`M${cx} ${cy - 4}L${cx + 4} ${cy}L${cx} ${cy + 4}L${cx - 4} ${cy}Z`} fill={color} />;
+  };
+}
+function crossDot(color: string) {
+  return (p: any) => {
+    if (p.cx == null || p.cy == null || p.value == null) return <g key={p.key ?? p.index} />;
+    const { cx, cy } = p;
+    return (
+      <path key={p.key ?? p.index} d={`M${cx - 4} ${cy - 4}L${cx + 4} ${cy + 4}M${cx + 4} ${cy - 4}L${cx - 4} ${cy + 4}`} stroke={color} strokeWidth={1.6} />
+    );
+  };
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 export function TrendCharts({ cs, light, maxPoints }: Props) {
   const axisColor = light ? "#555" : "#93a4b3";
   const grid = light ? "#dddddd" : "#26333f";
@@ -95,73 +69,31 @@ export function TrendCharts({ cs, light, maxPoints }: Props) {
     return maxPoints ? downsample(base, maxPoints) : base;
   }, [cs.vitals, maxPoints]);
 
-  const selected = new Set(cs.monitoring.standard);
+  const has = (code: string) => cs.monitoring.standard.includes(code) && data.some((r) => typeof r[code] === "number");
 
-  if (data.length === 0) {
-    return <div className="empty">Aún no hay registros de constantes. Usa el botón "Constantes" para empezar.</div>;
-  }
-
-  // Gráficas agrupadas: solo las series seleccionadas con datos.
-  const charts = CHART_DEFS.map((def) => ({
-    title: def.title,
-    series: def.series.filter((s) => selected.has(s.code)),
-  })).filter((c) => c.series.length > 0);
-
-  // Parámetros adicionales (personalizados): una gráfica pequeña cada uno.
-  const customCharts = cs.monitoring.custom.filter((p) => !STANDARD_PARAMS.some((s) => s.code === p.code));
-
-  function renderChart(title: string, series: { code: string; label: string; axis: "left" | "right"; color: string }[]) {
-    const hasRight = series.some((s) => s.axis === "right");
-    return (
-      <div
-        className="card"
-        key={title}
-        style={light ? { marginBottom: 0, background: "#fff", border: "1px solid #ddd" } : { marginBottom: 0 }}
-      >
-        <div className="section-title" style={{ margin: "0 0 8px", color: light ? "#555" : undefined }}>
-          {title}
-        </div>
-        <ResponsiveContainer width="100%" height={light ? 150 : 190}>
-          <LineChart data={data} margin={{ top: 6, right: hasRight ? 6 : 10, bottom: 0, left: -18 }}>
-            <CartesianGrid stroke={grid} vertical={false} />
-            <XAxis dataKey="t" stroke={axisColor} fontSize={11} minTickGap={24} />
-            <YAxis yAxisId="left" stroke={axisColor} fontSize={11} domain={["auto", "auto"]} />
-            {hasRight && (
-              <YAxis yAxisId="right" orientation="right" stroke={axisColor} fontSize={11} domain={["auto", "auto"]} width={34} />
-            )}
-            <Tooltip contentStyle={{ background: "#141d27", border: "1px solid #26333f", borderRadius: 10, color: "#e8eef4" }} />
-            {series.length > 1 && <Legend wrapperStyle={{ fontSize: 11 }} />}
-            {series.map((s) => (
-              <Line
-                key={s.code}
-                yAxisId={s.axis}
-                type="monotone"
-                dataKey={s.code}
-                name={s.label}
-                stroke={s.color}
-                strokeWidth={2.2}
-                dot={light ? false : { r: 2 }}
-                connectNulls
-                isAnimationActive={false}
-              />
-            ))}
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-    );
+  if (data.length === 0 || !["FC", "TAS", "TAD", "TAM", "SPO2"].some(has)) {
+    return <div className="empty">Aún no hay constantes hemodinámicas registradas.</div>;
   }
 
   return (
-    <div className="grid2">
-      {charts.map((c) =>
-        renderChart(
-          c.title,
-          c.series.map((s) => ({ ...s, color: colorOf(s.code) })),
-        ),
-      )}
-      {customCharts.map((p) =>
-        renderChart(p.label, [{ code: p.code, label: p.label, axis: "left", color: p.color ?? "#14b8a6" }]),
-      )}
+    <div className="card" style={light ? { marginBottom: 0, background: "#fff", border: "1px solid #ddd" } : { marginBottom: 0 }}>
+      <div className="section-title" style={{ margin: "0 0 8px", color: light ? "#555" : undefined }}>
+        Presión arterial · FC (♦) · SpO₂ (✕)
+      </div>
+      <ResponsiveContainer width="100%" height={light ? 200 : 260}>
+        <LineChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: -16 }}>
+          <CartesianGrid stroke={grid} vertical={false} />
+          <XAxis dataKey="t" stroke={axisColor} fontSize={11} minTickGap={26} />
+          <YAxis stroke={axisColor} fontSize={11} domain={["auto", "auto"]} />
+          <Tooltip contentStyle={{ background: "#141d27", border: "1px solid #26333f", borderRadius: 10, color: "#e8eef4" }} />
+          <Legend wrapperStyle={{ fontSize: 11 }} />
+          {has("TAS") && <Line type="monotone" dataKey="TAS" name="TAS" stroke={colorOf("TAS")} strokeWidth={2} dot={false} connectNulls isAnimationActive={false} />}
+          {has("TAD") && <Line type="monotone" dataKey="TAD" name="TAD" stroke={colorOf("TAD")} strokeWidth={2} dot={false} connectNulls isAnimationActive={false} />}
+          {has("TAM") && <Line type="monotone" dataKey="TAM" name="TAM" stroke={colorOf("TAM")} strokeWidth={1.6} strokeDasharray="4 3" dot={false} connectNulls isAnimationActive={false} />}
+          {has("FC") && <Line dataKey="FC" name="FC ♦" stroke="none" dot={diamondDot(colorOf("FC"))} isAnimationActive={false} legendType="diamond" />}
+          {has("SPO2") && <Line dataKey="SPO2" name="SpO₂ ✕" stroke="none" dot={crossDot(colorOf("SPO2"))} isAnimationActive={false} legendType="cross" />}
+        </LineChart>
+      </ResponsiveContainer>
     </div>
   );
 }
@@ -169,5 +101,3 @@ export function TrendCharts({ cs, light, maxPoints }: Props) {
 export function paramLabel(code: string, cs: CaseState): string {
   return findParam(code, cs.monitoring.custom)?.label ?? code;
 }
-
-export { TABLE_ONLY };

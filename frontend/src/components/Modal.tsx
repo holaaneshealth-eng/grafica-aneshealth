@@ -11,8 +11,16 @@ export function Modal({ title, onClose, children }: Props) {
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-grip" />
-        <h3>{title}</h3>
+        <div className="modal-head">
+          <h3>{title}</h3>
+          <button type="button" className="modal-close" onClick={onClose} aria-label="Cerrar">
+            ✕
+          </button>
+        </div>
         {children}
+        <button type="button" className="btn ghost block" style={{ marginTop: 12 }} onClick={onClose}>
+          Cancelar / volver
+        </button>
       </div>
     </div>
   );

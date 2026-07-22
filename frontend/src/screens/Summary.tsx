@@ -3,7 +3,8 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import type { CaseState } from "../domain/events";
 import { useStore } from "../store/store";
-import { TrendCharts } from "../components/TrendCharts";
+import { TrendCharts, CHARTED } from "../components/TrendCharts";
+import { MedicationTimeline } from "../components/MedicationTimeline";
 import { dmy, hhmm, durationBetween } from "../utils/time";
 import { STANDARD_PARAMS } from "../domain/monitoring";
 import { formatNum } from "../domain/calculations";
@@ -23,8 +24,9 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
   const timeline = getTimeline(cs.caseId);
   const [busy, setBusy] = useState(false);
 
+  // La tabla seriada excluye las constantes que ya se representan en la gráfica.
   const paramsForTable = [
-    ...STANDARD_PARAMS.filter((p) => cs.monitoring.standard.includes(p.code)),
+    ...STANDARD_PARAMS.filter((p) => cs.monitoring.standard.includes(p.code) && !CHARTED.has(p.code)),
     ...cs.monitoring.custom.filter((c) => !STANDARD_PARAMS.some((s) => s.code === c.code)),
   ];
 
@@ -232,55 +234,20 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
         <h2>Gráficas de tendencias</h2>
         <TrendCharts cs={cs} light maxPoints={60} />
 
-        {/* Medicación */}
-        <h2>Medicación</h2>
-        <table>
-          <thead>
-            <tr>
-              <th style={{ width: 44 }}>Hora</th>
-              <th>Fármaco</th>
-              <th style={{ width: 66 }}>Tipo</th>
-              <th>Detalle</th>
-            </tr>
-          </thead>
-          <tbody>
-            {cs.boluses.map((b) => (
-              <tr key={b.id}>
-                <td>{hhmm(b.at)}</td>
-                <td>{b.drug}</td>
-                <td>Bolus</td>
-                <td>
-                  {formatNum(b.dose)} {b.unit}
-                </td>
-              </tr>
-            ))}
-            {cs.infusions.map((i) => (
-              <tr key={i.id}>
-                <td>{hhmm(i.startedAt)}</td>
-                <td>{i.drug}</td>
-                <td>Perfusión</td>
-                <td>
-                  {i.summary}
-                  {!i.gas ? ` (conc. ${formatNum(i.concentration)} ${i.concentrationUnit})` : ""}
-                  {i.stoppedAt ? ` · fin ${hhmm(i.stoppedAt)}` : " · en curso"}
-                </td>
-              </tr>
-            ))}
-            {cs.boluses.length === 0 && cs.infusions.length === 0 && (
-              <tr>
-                <td colSpan={4} className="muted">Sin registrar</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+        {/* Medicación en línea de tiempo */}
+        {(cs.boluses.length > 0 || cs.infusions.length > 0) && (
+          <>
+            <h2>Medicación</h2>
+            <MedicationTimeline cs={cs} light />
+          </>
+        )}
 
-        {/* Hemoderivados y analítica en dos columnas */}
-        <div className="sheet-cols">
-          <div>
-            <h2>Hemoderivados</h2>
-            {cs.bloodProducts.length === 0 ? (
-              <div className="muted">Sin registrar</div>
-            ) : (
+        {/* Hemoderivados y analítica (solo si hay datos) */}
+        {(cs.bloodProducts.length > 0 || cs.labs.length > 0) && (
+          <div className="sheet-cols">
+            {cs.bloodProducts.length > 0 && (
+              <div>
+                <h2>Hemoderivados</h2>
               <table>
                 <thead>
                   <tr>
@@ -301,98 +268,94 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
-          </div>
-          <div>
-            <h2>Analítica intraoperatoria</h2>
-            {cs.labs.length === 0 ? (
-              <div className="muted">Sin registrar</div>
-            ) : (
-              <table>
-                <tbody>
-                  {cs.labs.map((l) => (
-                    <tr key={l.id}>
-                      <td style={{ width: 44 }}>{hhmm(l.at)}</td>
-                      <td>
-                        {Object.entries(l.values)
-                          .map(([k, v]) => `${k} ${formatNum(v)}`)
-                          .join(" · ")}
-                        {l.notes ? ` · ${l.notes}` : ""}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
-
-        {/* Registro seriado numérico (datos completos, sin pérdida) */}
-        <h2>Monitorización (registro seriado)</h2>
-        {cs.vitals.length === 0 ? (
-          <div className="muted">Sin registros</div>
-        ) : (
-          <table className="dense">
-            <thead>
-              <tr>
-                <th>Hora</th>
-                {paramsForTable.map((p) => (
-                  <th key={p.code}>{p.label}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {cs.vitals
-                .slice()
-                .sort((a, b) => a.at.localeCompare(b.at))
-                .map((v) => (
-                  <tr key={v.id}>
-                    <td>{hhmm(v.at)}</td>
-                    {paramsForTable.map((p) => (
-                      <td key={p.code}>{v.values[p.code] ?? "-"}</td>
+            {cs.labs.length > 0 && (
+              <div>
+                <h2>Analítica intraoperatoria</h2>
+                <table>
+                  <tbody>
+                    {cs.labs.map((l) => (
+                      <tr key={l.id}>
+                        <td style={{ width: 44 }}>{hhmm(l.at)}</td>
+                        <td>
+                          {Object.entries(l.values)
+                            .map(([k, v]) => `${k} ${formatNum(v)}`)
+                            .join(" · ")}
+                          {l.notes ? ` · ${l.notes}` : ""}
+                        </td>
+                      </tr>
                     ))}
-                  </tr>
-                ))}
-            </tbody>
-          </table>
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         )}
 
-        {/* Incidencias y cronología */}
-        <div className="sheet-cols">
-          <div>
-            <h2>Incidencias</h2>
-            {cs.incidents.length === 0 ? (
-              <div className="muted">Sin incidencias</div>
-            ) : (
-              <table>
-                <tbody>
-                  {cs.incidents.map((i) => (
-                    <tr key={i.id}>
-                      <td style={{ width: 44 }}>{hhmm(i.at)}</td>
-                      <td>[{i.severity}] {i.text}</td>
+        {/* Registro seriado (excluye las constantes ya representadas en la gráfica) */}
+        {cs.vitals.length > 0 && paramsForTable.length > 0 && (
+          <>
+            <h2>Monitorización (registro seriado)</h2>
+            <table className="dense">
+              <thead>
+                <tr>
+                  <th>Hora</th>
+                  {paramsForTable.map((p) => (
+                    <th key={p.code}>{p.label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {cs.vitals
+                  .slice()
+                  .sort((a, b) => a.at.localeCompare(b.at))
+                  .map((v) => (
+                    <tr key={v.id}>
+                      <td>{hhmm(v.at)}</td>
+                      {paramsForTable.map((p) => (
+                        <td key={p.code}>{v.values[p.code] ?? "-"}</td>
+                      ))}
                     </tr>
                   ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-          <div>
-            <h2>Cronología</h2>
+              </tbody>
+            </table>
+          </>
+        )}
+
+        {/* Incidencias (solo si hay) */}
+        {cs.incidents.length > 0 && (
+          <>
+            <h2>Incidencias</h2>
             <table>
               <tbody>
-                {timeline.map((it) => (
-                  <tr key={it.id}>
-                    <td style={{ width: 44 }}>{hhmm(it.at)}</td>
+                {cs.incidents.map((i) => (
+                  <tr key={i.id}>
+                    <td style={{ width: 44 }}>{hhmm(i.at)}</td>
                     <td>
-                      <strong>{it.label}</strong>
-                      {it.detail ? <span className="muted"> · {it.detail}</span> : ""}
+                      [{i.severity}] {i.text}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
-        </div>
+          </>
+        )}
+
+        <h2>Cronología</h2>
+        <table>
+          <tbody>
+            {timeline.map((it) => (
+              <tr key={it.id}>
+                <td style={{ width: 44 }}>{hhmm(it.at)}</td>
+                <td>
+                  <strong>{it.label}</strong>
+                  {it.detail ? <span className="muted"> · {it.detail}</span> : ""}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
 
         <div className="foot">
           <span>Documento pseudonimizado (RGPD). Identificado únicamente por IA.</span>

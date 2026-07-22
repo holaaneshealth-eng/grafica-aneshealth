@@ -10,10 +10,9 @@ import { Summary } from "./screens/Summary";
 import { DrugModal } from "./components/DrugModal";
 import { VitalsModal } from "./components/VitalsModal";
 import { IncidentModal } from "./components/IncidentModal";
-import { StopInfusionModal } from "./components/StopInfusionModal";
 import { hhmmss } from "./utils/time";
 
-type Modal = null | "drug" | "vitals" | "incident" | "stopinf";
+type Modal = null | "drug" | "vitals" | "incident";
 const INACTIVITY_MS = 30 * 60 * 1000; // cierre de sesion por inactividad
 
 export default function App() {
@@ -90,8 +89,6 @@ export default function App() {
       window.clearTimeout(idleRef.current);
     };
   }, [user, logout, showToast]);
-
-  const activeInfusions = cs ? cs.infusions.filter((i) => i.active).length : 0;
 
   if (booting) {
     return (
@@ -206,12 +203,6 @@ export default function App() {
         )}
       </main>
 
-      {cs && showEditingFlow && cs.phase === "OR" && activeInfusions > 0 && modal === null && (
-        <button className="floating-stop no-print" onClick={() => setModal("stopinf")}>
-          ■ Fin perfusión ({activeInfusions})
-        </button>
-      )}
-
       {cs && showEditingFlow && cs.phase === "OR" && (
         <nav className="actionbar no-print">
           <button className="btn primary" onClick={() => setModal("drug")}>
@@ -229,7 +220,6 @@ export default function App() {
       {cs && modal === "drug" && <DrugModal cs={cs} onClose={() => setModal(null)} onDone={showToast} />}
       {cs && modal === "vitals" && <VitalsModal cs={cs} onClose={() => setModal(null)} onDone={showToast} />}
       {cs && modal === "incident" && <IncidentModal cs={cs} onClose={() => setModal(null)} onDone={showToast} />}
-      {cs && modal === "stopinf" && <StopInfusionModal cs={cs} onClose={() => setModal(null)} onDone={showToast} />}
 
       {toast && <div className="toast">{toast}</div>}
     </div>

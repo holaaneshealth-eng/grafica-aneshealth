@@ -4,6 +4,7 @@ import type { CaseState } from "../domain/events";
 import { STANDARD_PARAMS } from "../domain/monitoring";
 import { TECHNIQUES, techniqueById, type TechniqueField } from "../domain/techniques";
 import { TrendCharts } from "../components/TrendCharts";
+import { MedicationTimeline } from "../components/MedicationTimeline";
 import { BloodProductModal } from "../components/BloodProductModal";
 import { LabModal } from "../components/LabModal";
 import { hhmm, nowLocalInput, isoFromLocalInput } from "../utils/time";
@@ -348,6 +349,14 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
           </div>
         )}
       </div>
+
+      {(cs.boluses.length > 0 || cs.infusions.length > 0) && (
+        <div className="card">
+          <h2>Fármacos (línea de tiempo)</h2>
+          <p className="sub">Bolus como rombos; perfusiones como barra con sus ritmos. Vuelve a pulsar un fármaco en curso para cambiar el ritmo (0 = fin).</p>
+          <MedicationTimeline cs={cs} />
+        </div>
+      )}
 
       <div className="card">
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
