@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Modal } from "./Modal";
 import { TimeField } from "./TimeField";
 import { TemplatePanel } from "./TemplatePanel";
-import { DRUG_UNITS, drugByName, drugsForMode } from "../domain/drugs";
+import { DRUG_UNITS, drugByName, drugsForMode, dilutionsFor } from "../domain/drugs";
 import { computeInfusion, formatNum, type DoseRateUnit, type MassUnit } from "../domain/calculations";
 import { useStore } from "../store/store";
 import type { CaseState, InfusionRecord } from "../domain/events";
@@ -59,6 +59,33 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
     if (!a || d.length < 3) return false;
     return a.includes(d) || d.split(/\s+/).some((w) => w.length >= 4 && a.includes(w));
   }, [cs.preop.allergies, drug]);
+
+  // Fármacos recientes (por recencia de uso), filtrados según el modo actual.
+  const recents = useMemo(() => {
+    const evs = [
+      ...cs.boluses.map((b) => ({ n: b.drug, t: b.at })),
+      ...cs.infusions.map((i) => ({ n: i.drug, t: i.startedAt })),
+    ].sort((a, b) => b.t.localeCompare(a.t));
+    const uniq: string[] = [];
+    for (const e of evs) if (!uniq.includes(e.n)) uniq.push(e.n);
+    return uniq
+      .filter((n) => {
+        const d = drugByName(n);
+        if (!d) return true;
+        return mode === "bolus" ? !d.gas && !d.fluid : d.infusionDoseUnit || d.gas || d.fluid;
+      })
+      .slice(0, 6);
+  }, [cs.boluses, cs.infusions, mode]);
+
+  // Última dosis de este fármaco (para re-dosis en un toque).
+  const lastBolus = useMemo(() => {
+    if (!drug) return undefined;
+    return cs.boluses
+      .filter((b) => b.drug.toLowerCase() === drug.trim().toLowerCase())
+      .sort((a, b) => b.at.localeCompare(a.at))[0];
+  }, [cs.boluses, drug]);
+
+  const dils = dilutionsFor(drug);
 
   function pickDrug(name: string) {
     setDrug(name);
@@ -237,6 +264,18 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
         <>
           <div className="field">
             <label>Fármaco {drug && <span className="muted">· grupo {def?.group ?? "libre"}</span>}</label>
+            {recents.length > 0 && (
+              <div style={{ margin: "0 0 8px" }}>
+                <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Recientes</div>
+                <div className="chips">
+                  {recents.map((n) => (
+                    <button key={n} className={`chip ${drug === n ? "on" : ""}`} onClick={() => pickDrug(n)}>
+                      ↻ {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="chips" style={{ marginBottom: 10 }}>
               {chipDrugs.map((d) => {
                 const running = cs.infusions.some((i) => i.active && i.drug.toLowerCase() === d.name.toLowerCase());
@@ -284,6 +323,20 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
               </>
             ) : (
               <>
+                {lastBolus && (
+                  <div className="field">
+                    <label>Re-dosis</label>
+                    <button
+                      className="chip"
+                      onClick={() => {
+                        setDose(String(lastBolus.dose));
+                        setUnit(lastBolus.unit);
+                      }}
+                    >
+                      ↻ Repetir última: {formatNum(lastBolus.dose)} {lastBolus.unit}
+                    </button>
+                  </div>
+                )}
                 {def?.commonBolus && (
                   <div className="field">
                     <label>Dosis frecuentes</label>
@@ -376,6 +429,26 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
             </>
           ) : (
             <>
+              {dils.length > 0 && (
+                <div className="field">
+                  <label>Dilución estándar (editable)</label>
+                  <div className="chips">
+                    {dils.map((d) => (
+                      <button
+                        key={d.label}
+                        className="chip"
+                        onClick={() => {
+                          setAmount(String(d.amount));
+                          setAmountUnit(d.amountUnit);
+                          setDiluent(String(d.diluentMl));
+                        }}
+                      >
+                        {d.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="row">
                 <div className="field">
                   <label>Principio activo</label>

@@ -95,6 +95,44 @@ export const DRUGS: DrugDef[] = [
 
 export const DRUG_UNITS = ["mg", "mcg", "ml", "UI", "mEq", "g"];
 
+// Biblioteca de diluciones estándar por fármaco (modificables en cada caso).
+export interface Dilution {
+  label: string;
+  amount: number; // principio activo
+  amountUnit: "mg" | "mcg";
+  diluentMl: number; // volumen total
+}
+
+export const STANDARD_DILUTIONS: Record<string, Dilution[]> = {
+  Noradrenalina: [
+    { label: "5 mg / 50 ml", amount: 5, amountUnit: "mg", diluentMl: 50 },
+    { label: "8 mg / 50 ml", amount: 8, amountUnit: "mg", diluentMl: 50 },
+    { label: "10 mg / 100 ml", amount: 10, amountUnit: "mg", diluentMl: 100 },
+  ],
+  Remifentanilo: [
+    { label: "2 mg / 40 ml (50 mcg/ml)", amount: 2, amountUnit: "mg", diluentMl: 40 },
+    { label: "5 mg / 50 ml (100 mcg/ml)", amount: 5, amountUnit: "mg", diluentMl: 50 },
+  ],
+  Propofol: [{ label: "1000 mg / 50 ml (2%)", amount: 1000, amountUnit: "mg", diluentMl: 50 }],
+  Dexmedetomidina: [{ label: "200 mcg / 50 ml (4 mcg/ml)", amount: 200, amountUnit: "mcg", diluentMl: 50 }],
+  Rocuronio: [{ label: "50 mg / 50 ml", amount: 50, amountUnit: "mg", diluentMl: 50 }],
+  Ketamina: [{ label: "250 mg / 50 ml", amount: 250, amountUnit: "mg", diluentMl: 50 }],
+  Dobutamina: [{ label: "250 mg / 50 ml", amount: 250, amountUnit: "mg", diluentMl: 50 }],
+  Dopamina: [{ label: "200 mg / 50 ml", amount: 200, amountUnit: "mg", diluentMl: 50 }],
+  Nitroglicerina: [{ label: "50 mg / 50 ml", amount: 50, amountUnit: "mg", diluentMl: 50 }],
+  Fenilefrina: [{ label: "10 mg / 100 ml (100 mcg/ml)", amount: 10, amountUnit: "mg", diluentMl: 100 }],
+  Lidocaína: [{ label: "2000 mg / 500 ml", amount: 2000, amountUnit: "mg", diluentMl: 500 }],
+  "Sulfato de magnesio": [{ label: "2000 mg / 100 ml", amount: 2000, amountUnit: "mg", diluentMl: 100 }],
+  "Ácido tranexámico": [{ label: "1000 mg / 100 ml", amount: 1000, amountUnit: "mg", diluentMl: 100 }],
+  Isoproterenol: [{ label: "1 mg / 50 ml (20 mcg/ml)", amount: 1000, amountUnit: "mcg", diluentMl: 50 }],
+  Labetalol: [{ label: "100 mg / 100 ml", amount: 100, amountUnit: "mg", diluentMl: 100 }],
+  Sufentanilo: [{ label: "250 mcg / 50 ml (5 mcg/ml)", amount: 250, amountUnit: "mcg", diluentMl: 50 }],
+};
+
+export function dilutionsFor(name: string): Dilution[] {
+  return STANDARD_DILUTIONS[name] ?? [];
+}
+
 export function drugByName(name: string): DrugDef | undefined {
   return DRUGS.find((d) => d.name.toLowerCase() === name.toLowerCase());
 }

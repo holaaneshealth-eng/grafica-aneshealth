@@ -21,6 +21,7 @@ export type EventType =
   | "INCIDENT"
   | "BLOOD_PRODUCT"
   | "LAB_RESULT"
+  | "BALANCE"
   | "SURGERY_ENDED"
   | "CASE_REOPENED"
   | "CASE_SIGNED"
@@ -144,6 +145,13 @@ export interface LabRecord {
   notes: string;
 }
 
+export interface BalanceRecord {
+  id: string;
+  at: string;
+  bleedingMl?: number; // sangrado
+  diuresisMl?: number; // diuresis
+}
+
 // Estado proyectado (vista materializada) de un caso.
 export interface CaseState {
   caseId: string;
@@ -163,6 +171,7 @@ export interface CaseState {
   milestones: MilestoneRecord[];
   bloodProducts: BloodProductRecord[];
   labs: LabRecord[];
+  balances: BalanceRecord[];
   endedAt?: string | null;
   signedAt?: string | null;
   signedBy?: string | null;
@@ -187,6 +196,7 @@ export function emptyCaseState(caseId: string, ia: string, year: number, ordinal
     milestones: [],
     bloodProducts: [],
     labs: [],
+    balances: [],
     endedAt: null,
     signedAt: null,
     signedBy: null,

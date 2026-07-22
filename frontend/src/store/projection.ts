@@ -10,6 +10,7 @@ import {
   type TechniqueRecord,
   type BloodProductRecord,
   type LabRecord,
+  type BalanceRecord,
   emptyCaseState,
 } from "../domain/events";
 
@@ -132,6 +133,8 @@ function applyEvent(state: CaseState, e: BaseEvent): CaseState {
       return { ...state, bloodProducts: [...state.bloodProducts, p as unknown as BloodProductRecord] };
     case "LAB_RESULT":
       return { ...state, labs: [...state.labs, p as unknown as LabRecord] };
+    case "BALANCE":
+      return { ...state, balances: [...state.balances, p as unknown as BalanceRecord] };
     case "SURGERY_ENDED":
       return { ...state, phase: "CLOSED", endedAt: e.occurredAt };
     case "CASE_REOPENED":

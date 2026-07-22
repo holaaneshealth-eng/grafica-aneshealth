@@ -3,7 +3,7 @@ import { useStore } from "../store/store";
 import type { CaseState } from "../domain/events";
 import { STANDARD_PARAMS } from "../domain/monitoring";
 import { TECHNIQUES, techniqueById, type TechniqueField } from "../domain/techniques";
-import { TrendCharts } from "../components/TrendCharts";
+import { AnesthesiaChart } from "../components/AnesthesiaChart";
 import { MedicationTimeline } from "../components/MedicationTimeline";
 import { BloodProductModal } from "../components/BloodProductModal";
 import { LabModal } from "../components/LabModal";
@@ -13,6 +13,7 @@ import { formatNum } from "../domain/calculations";
 interface Props {
   cs: CaseState;
   onToast?: (m: string) => void;
+  onAddVitalsAt?: (iso: string) => void;
 }
 
 type Tab = "safety" | "monitor" | "technique" | "record" | "charts";
@@ -27,7 +28,7 @@ const MILESTONES = [
   "Fin cirugía",
 ];
 
-export function Phase2({ cs, onToast }: Props) {
+export function Phase2({ cs, onToast, onAddVitalsAt }: Props) {
   const [tab, setTab] = useState<Tab>("safety");
   return (
     <div>
@@ -55,9 +56,9 @@ export function Phase2({ cs, onToast }: Props) {
       {tab === "record" && <RecordSection cs={cs} onToast={onToast} />}
       {tab === "charts" && (
         <div className="card">
-          <h2>Gráficas de tendencias</h2>
-          <p className="sub">Generadas automáticamente a partir de los registros.</p>
-          <TrendCharts cs={cs} />
+          <h2>Gráfica anestésica</h2>
+          <p className="sub">Hemodinámica, fármacos y eventos sobre el mismo eje de tiempo. Toca la gráfica para añadir constantes en ese momento.</p>
+          <AnesthesiaChart cs={cs} onTimeClick={onAddVitalsAt} />
         </div>
       )}
     </div>
@@ -302,6 +303,29 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
   const [msTime, setMsTime] = useState(nowLocalInput());
   const [bloodOpen, setBloodOpen] = useState(false);
   const [labOpen, setLabOpen] = useState(false);
+  const [bleeding, setBleeding] = useState("");
+  const [diuresis, setDiuresis] = useState("");
+  const [balTime, setBalTime] = useState(nowLocalInput());
+
+  function addBalance() {
+    const b = parseFloat(bleeding.replace(",", "."));
+    const d = parseFloat(diuresis.replace(",", "."));
+    if (!isFinite(b) && !isFinite(d)) return;
+    const at = isoFromLocalInput(balTime);
+    append(
+      cs.caseId,
+      "BALANCE",
+      { id: "bal-" + Date.now(), at, bleedingMl: isFinite(b) ? b : undefined, diuresisMl: isFinite(d) ? d : undefined },
+      at,
+    );
+    setBleeding("");
+    setDiuresis("");
+    setBalTime(nowLocalInput());
+    onToast?.("Balance registrado");
+  }
+
+  const totalBleeding = cs.balances.reduce((s, x) => s + (x.bleedingMl ?? 0), 0);
+  const totalDiuresis = cs.balances.reduce((s, x) => s + (x.diuresisMl ?? 0), 0);
 
   function milestone(label: string) {
     append(cs.caseId, "MILESTONE", { id: "m-" + Date.now(), at: new Date().toISOString(), label });
@@ -409,6 +433,33 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
                 </span>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+
+      <div className="card">
+        <h2>Sangrado y diuresis</h2>
+        <p className="sub">Campos libres. Solo aparecerán en la hoja final si registras algún dato.</p>
+        <div className="row">
+          <div className="field">
+            <label>Sangrado (ml)</label>
+            <input inputMode="decimal" type="text" value={bleeding} onChange={(e) => setBleeding(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>Diuresis (ml)</label>
+            <input inputMode="decimal" type="text" value={diuresis} onChange={(e) => setDiuresis(e.target.value)} />
+          </div>
+        </div>
+        <div className="field">
+          <label>Hora</label>
+          <input type="datetime-local" value={balTime} onChange={(e) => setBalTime(e.target.value)} />
+        </div>
+        <button className="btn block" onClick={addBalance} disabled={!bleeding && !diuresis}>
+          + Añadir al balance
+        </button>
+        {cs.balances.length > 0 && (
+          <div className="alert" style={{ marginTop: 10 }}>
+            Total sangrado: <strong>{totalBleeding} ml</strong> · Total diuresis: <strong>{totalDiuresis} ml</strong>
           </div>
         )}
       </div>

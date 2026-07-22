@@ -3,8 +3,7 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import type { CaseState } from "../domain/events";
 import { useStore } from "../store/store";
-import { TrendCharts, CHARTED } from "../components/TrendCharts";
-import { MedicationTimeline } from "../components/MedicationTimeline";
+import { AnesthesiaChart, CHARTED } from "../components/AnesthesiaChart";
 import { dmy, hhmm, durationBetween } from "../utils/time";
 import { STANDARD_PARAMS } from "../domain/monitoring";
 import { formatNum } from "../domain/calculations";
@@ -30,6 +29,21 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
     ...cs.monitoring.custom.filter((c) => !STANDARD_PARAMS.some((s) => s.code === c.code)),
   ];
 
+  // Totales acumulados de fármacos (bolus) por fármaco + unidad.
+  const drugTotals = (() => {
+    const map = new Map<string, { drug: string; unit: string; total: number }>();
+    for (const b of cs.boluses) {
+      const key = `${b.drug}|${b.unit}`;
+      const e = map.get(key) ?? { drug: b.drug, unit: b.unit, total: 0 };
+      e.total += b.dose;
+      map.set(key, e);
+    }
+    return Array.from(map.values());
+  })();
+
+  const totalBleeding = cs.balances.reduce((s, x) => s + (x.bleedingMl ?? 0), 0);
+  const totalDiuresis = cs.balances.reduce((s, x) => s + (x.diuresisMl ?? 0), 0);
+
   async function renderCanvas(): Promise<HTMLCanvasElement> {
     return html2canvas(sheetRef.current!, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
   }
@@ -38,20 +52,33 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
     setBusy(true);
     try {
       const canvas = await renderCanvas();
-      const pdf = new jsPDF("p", "mm", "a4");
+      const pdf = new jsPDF("l", "mm", "a4"); // A4 horizontal
       const pw = pdf.internal.pageSize.getWidth();
       const ph = pdf.internal.pageSize.getHeight();
-      const imgH = (canvas.height * pw) / canvas.width;
-      const img = canvas.toDataURL("image/png");
-      let pos = 0;
-      let left = imgH;
-      while (left > 0) {
-        pdf.addImage(img, "PNG", 0, pos, pw, imgH);
-        left -= ph;
-        if (left > 0) {
-          pdf.addPage();
-          pos -= ph;
-        }
+      const headerH = 9;
+      const footerH = 7;
+      const contentH = ph - headerH - footerH;
+      const pxPerMm = canvas.width / pw;
+      const pageContentPx = contentH * pxPerMm;
+      const pages = Math.max(1, Math.ceil(canvas.height / pageContentPx));
+      for (let p = 0; p < pages; p++) {
+        if (p > 0) pdf.addPage();
+        const slicePx = Math.min(pageContentPx, canvas.height - p * pageContentPx);
+        const tmp = document.createElement("canvas");
+        tmp.width = canvas.width;
+        tmp.height = slicePx;
+        const ctx = tmp.getContext("2d")!;
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, tmp.width, tmp.height);
+        ctx.drawImage(canvas, 0, p * pageContentPx, canvas.width, slicePx, 0, 0, canvas.width, slicePx);
+        pdf.addImage(tmp.toDataURL("image/png"), "PNG", 0, headerH, pw, slicePx / pxPerMm);
+        // Cabecera y pie repetidos en cada página
+        pdf.setFontSize(8);
+        pdf.setTextColor(90);
+        pdf.text(`Hoja Anestésica · ${cs.ia}`, 6, 6);
+        pdf.text(dmy(cs.createdAt), pw - 6, 6, { align: "right" });
+        pdf.text(`Página ${p + 1}/${pages}`, pw - 6, ph - 2.5, { align: "right" });
+        pdf.text(cs.signedAt ? `Firmado: ${cs.signedBy}` : "Documento pseudonimizado (RGPD)", 6, ph - 2.5);
       }
       pdf.save(`hoja-anestesica-${cs.ia}.pdf`);
       onToast("PDF generado");
@@ -230,15 +257,27 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
           </div>
         </div>
 
-        {/* Gráficas: el elemento con más peso visual */}
-        <h2>Gráficas de tendencias</h2>
-        <TrendCharts cs={cs} light maxPoints={60} />
+        {/* Gráfica anestésica integrada (hemodinámica + fármacos + eventos) */}
+        <h2>Gráfica anestésica</h2>
+        <AnesthesiaChart cs={cs} light />
 
-        {/* Medicación en línea de tiempo */}
-        {(cs.boluses.length > 0 || cs.infusions.length > 0) && (
+        {/* Totales acumulados de fármacos (bolus) */}
+        {drugTotals.length > 0 && (
           <>
-            <h2>Medicación</h2>
-            <MedicationTimeline cs={cs} light />
+            <h2>Totales de fármacos (bolus)</h2>
+            <div className="muted" style={{ fontSize: 11 }}>
+              {drugTotals.map((t) => `${t.drug}: ${formatNum(t.total)} ${t.unit}`).join("  ·  ")}
+            </div>
+          </>
+        )}
+
+        {/* Balance (solo si hay datos) */}
+        {cs.balances.length > 0 && (
+          <>
+            <h2>Balance</h2>
+            <div className="muted" style={{ fontSize: 12 }}>
+              Sangrado total: <strong>{totalBleeding} ml</strong> · Diuresis total: <strong>{totalDiuresis} ml</strong>
+            </div>
           </>
         )}
 

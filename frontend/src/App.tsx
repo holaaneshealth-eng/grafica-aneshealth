@@ -41,6 +41,11 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [clock, setClock] = useState(new Date().toISOString());
   const [showAdmin, setShowAdmin] = useState(false);
+  const [vitalsTime, setVitalsTime] = useState<string | undefined>(undefined);
+  const [reminderMin, setReminderMin] = useState<number>(() => {
+    const v = typeof localStorage !== "undefined" ? localStorage.getItem("ah-reminder-min") : null;
+    return v ? parseInt(v, 10) : 5;
+  });
 
   const showToast = useCallback((m: string) => {
     setToast(m);
@@ -105,6 +110,26 @@ export default function App() {
   const canSign = !!activeCase && (user.role === "admin" || (activeCase.ownerUserId === user.id && activeCase.status !== "signed"));
   const canReopen = !!activeCase && activeCase.status === "closed" && (user.role === "admin" || activeCase.ownerUserId === user.id);
   const showEditingFlow = cs && writable && cs.phase !== "CLOSED";
+
+  // Recordatorio de constantes: minutos desde el último registro.
+  const lastVitalsMs = cs
+    ? Math.max(new Date(cs.createdAt).getTime(), ...cs.vitals.map((v) => new Date(v.at).getTime()))
+    : 0;
+  const minsSinceVitals = Math.floor((Date.parse(clock) - lastVitalsMs) / 60000);
+  const vitalsOverdue = !!showEditingFlow && cs?.phase === "OR" && minsSinceVitals >= reminderMin;
+
+  function changeReminder(min: number) {
+    setReminderMin(min);
+    try {
+      localStorage.setItem("ah-reminder-min", String(min));
+    } catch {
+      /* ignore */
+    }
+  }
+  function openVitalsAt(iso?: string) {
+    setVitalsTime(iso);
+    setModal("vitals");
+  }
 
   function advanceFromPhase1() {
     if (cs && phase1Complete(cs)) {
@@ -184,7 +209,7 @@ export default function App() {
 
                 {showEditingFlow && cs.phase === "OR" && (
                   <>
-                    <Phase2 cs={cs} onToast={showToast} />
+                    <Phase2 cs={cs} onToast={showToast} onAddVitalsAt={openVitalsAt} />
                     <button
                       className="btn primary block lg no-print"
                       style={{ marginTop: 8 }}
@@ -203,12 +228,27 @@ export default function App() {
         )}
       </main>
 
+      {cs && vitalsOverdue && modal === null && (
+        <div className="reminder-banner no-print">
+          <span>⏱ Constantes: hace {minsSinceVitals} min</span>
+          <span className="spacer" />
+          <select value={reminderMin} onChange={(e) => changeReminder(parseInt(e.target.value, 10))} title="Cada cuántos minutos avisar">
+            <option value={5}>cada 5 min</option>
+            <option value={10}>cada 10 min</option>
+            <option value={15}>cada 15 min</option>
+          </select>
+          <button className="btn primary" onClick={() => openVitalsAt(undefined)}>
+            Registrar
+          </button>
+        </div>
+      )}
+
       {cs && showEditingFlow && cs.phase === "OR" && (
         <nav className="actionbar no-print">
           <button className="btn primary" onClick={() => setModal("drug")}>
             + Fármaco
           </button>
-          <button className="btn" onClick={() => setModal("vitals")}>
+          <button className="btn" onClick={() => openVitalsAt(undefined)}>
             + Constantes
           </button>
           <button className="btn danger" onClick={() => setModal("incident")}>
@@ -218,7 +258,17 @@ export default function App() {
       )}
 
       {cs && modal === "drug" && <DrugModal cs={cs} onClose={() => setModal(null)} onDone={showToast} />}
-      {cs && modal === "vitals" && <VitalsModal cs={cs} onClose={() => setModal(null)} onDone={showToast} />}
+      {cs && modal === "vitals" && (
+        <VitalsModal
+          cs={cs}
+          initialTime={vitalsTime}
+          onClose={() => {
+            setModal(null);
+            setVitalsTime(undefined);
+          }}
+          onDone={showToast}
+        />
+      )}
       {cs && modal === "incident" && <IncidentModal cs={cs} onClose={() => setModal(null)} onDone={showToast} />}
 
       {toast && <div className="toast">{toast}</div>}
