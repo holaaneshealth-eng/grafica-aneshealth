@@ -368,24 +368,23 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
           </div>
         )}
 
-        {/* Cronología de constantes (lo más útil como registro temporal; los hitos y fármacos ya están en la gráfica) */}
-        {cs.vitals.length > 0 && paramsForTable.length > 0 && (
-          <>
-            <h2>Cronología de constantes</h2>
-            <table className="dense">
-              <thead>
-                <tr>
-                  <th>Hora</th>
-                  {paramsForTable.map((p) => (
-                    <th key={p.code}>{p.label}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {cs.vitals
-                  .slice()
-                  .sort((a, b) => a.at.localeCompare(b.at))
-                  .map((v) => (
+        {/* Cronología de constantes: fuente pequeña y dos columnas para aprovechar el A4 horizontal */}
+        {cs.vitals.length > 0 &&
+          paramsForTable.length > 0 &&
+          (() => {
+            const rows = cs.vitals.slice().sort((a, b) => a.at.localeCompare(b.at));
+            const renderTbl = (rs: typeof rows) => (
+              <table className="const-table">
+                <thead>
+                  <tr>
+                    <th>Hora</th>
+                    {paramsForTable.map((p) => (
+                      <th key={p.code}>{p.label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rs.map((v) => (
                     <tr key={v.id}>
                       <td>{hhmm(v.at)}</td>
                       {paramsForTable.map((p) => (
@@ -393,10 +392,25 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
                       ))}
                     </tr>
                   ))}
-              </tbody>
-            </table>
-          </>
-        )}
+                </tbody>
+              </table>
+            );
+            const twoCols = rows.length > 8;
+            const mid = Math.ceil(rows.length / 2);
+            return (
+              <>
+                <h2>Cronología de constantes</h2>
+                {twoCols ? (
+                  <div className="sheet-cols const-cols">
+                    {renderTbl(rows.slice(0, mid))}
+                    {renderTbl(rows.slice(mid))}
+                  </div>
+                ) : (
+                  renderTbl(rows)
+                )}
+              </>
+            );
+          })()}
 
         {/* Incidencias (solo si hay) */}
         {cs.incidents.length > 0 && (

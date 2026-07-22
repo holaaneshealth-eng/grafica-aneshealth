@@ -12,7 +12,8 @@ interface Props {
 const PALETTE = ["#0ea5e9", "#f59e0b", "#22c55e", "#ec4899", "#8b5cf6", "#14b8a6", "#f97316", "#6366f1", "#d946ef", "#84cc16", "#ef4444"];
 
 // Constantes representadas en la gráfica (se excluyen de la tabla seriada).
-export const CHARTED = new Set(["FC", "TAS", "TAD", "TAM", "SPO2"]);
+// SpO2 se retira de la gráfica y pasa a la cronología de constantes.
+export const CHARTED = new Set(["FC", "TAS", "TAD", "TAM"]);
 
 function col(code: string, light?: boolean): string {
   const dark: Record<string, string> = { TAS: "#f87171", TAD: "#fb923c", TAM: "#facc15", FC: "#34d399", SPO2: "#38bdf8" };
@@ -53,7 +54,7 @@ export function AnesthesiaChart({ cs, light, onTimeClick }: Props) {
     const t0 = Math.min(...times);
     const t1 = Math.max(...times, t0 + 60000);
     let maxVal = 160;
-    vitals.forEach((v) => ["TAS", "TAM", "FC", "SPO2", "TAD"].forEach((k) => {
+    vitals.forEach((v) => ["TAS", "TAM", "FC", "TAD"].forEach((k) => {
       const nn = v.values[k];
       if (typeof nn === "number" && nn > maxVal) maxVal = nn;
     }));
@@ -122,7 +123,7 @@ export function AnesthesiaChart({ cs, light, onTimeClick }: Props) {
         ))}
 
         {/* Tendencia TAM */}
-        {tamPts.length > 1 && <polyline points={tamPts.join(" ")} fill="none" stroke={col("TAM", light)} strokeWidth={1.2} opacity={0.7} />}
+        {tamPts.length > 1 && <polyline points={tamPts.join(" ")} fill="none" stroke={col("TAM", light)} strokeWidth={1.8} opacity={0.9} />}
 
         {/* Constantes hemodinámicas */}
         {model.vitals.map((v, i) => {
@@ -135,14 +136,10 @@ export function AnesthesiaChart({ cs, light, onTimeClick }: Props) {
             els.push(<line key="c1" x1={x - 3.5} y1={Y(tas)} x2={x + 3.5} y2={Y(tas)} stroke={col("TAS", light)} strokeWidth={1.6} />);
             els.push(<line key="c2" x1={x - 3.5} y1={Y(tad)} x2={x + 3.5} y2={Y(tad)} stroke={col("TAD", light)} strokeWidth={1.6} />);
           }
-          if (typeof v.values.TAM === "number") els.push(<circle key="tam" cx={x} cy={Y(v.values.TAM)} r={2} fill={col("TAM", light)} />);
+          if (typeof v.values.TAM === "number") els.push(<circle key="tam" cx={x} cy={Y(v.values.TAM)} r={2.7} fill={col("TAM", light)} />);
           if (typeof v.values.FC === "number") {
             const y = Y(v.values.FC);
             els.push(<path key="fc" d={`M${x} ${y - 3.6}L${x + 3.6} ${y}L${x} ${y + 3.6}L${x - 3.6} ${y}Z`} fill={col("FC", light)} />);
-          }
-          if (typeof v.values.SPO2 === "number") {
-            const y = Y(v.values.SPO2);
-            els.push(<path key="sp" d={`M${x - 3.4} ${y - 3.4}L${x + 3.4} ${y + 3.4}M${x + 3.4} ${y - 3.4}L${x - 3.4} ${y + 3.4}`} stroke={col("SPO2", light)} strokeWidth={1.5} />);
           }
           return <g key={i}>{els}</g>;
         })}
@@ -205,7 +202,6 @@ export function AnesthesiaChart({ cs, light, onTimeClick }: Props) {
         <span style={{ color: col("TAS", light) }}>▮ TA (sís/diás)</span>
         <span style={{ color: col("TAM", light) }}>● TAM</span>
         <span style={{ color: col("FC", light) }}>◆ FC</span>
-        <span style={{ color: col("SPO2", light) }}>✕ SpO₂</span>
         <span style={{ color: light ? "#0e7c7b" : "#2dd4bf" }}>┊ hitos</span>
         <span style={{ color: "#ef4444" }}>┊ incidencias</span>
       </div>

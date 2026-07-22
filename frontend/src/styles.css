@@ -704,6 +704,9 @@ textarea {
 .sheet .foot { margin-top: 18px; border-top: 1px solid #ccc; padding-top: 8px; font-size: 10px; color: #666; display: flex; justify-content: space-between; }
 .sheet .sheet-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 .sheet table.dense th, .sheet table.dense td { padding: 2px 4px; font-size: 10px; }
+.sheet .const-table { width: 100%; }
+.sheet .const-table th, .sheet .const-table td { padding: 1px 3px; font-size: 8.5px; }
+.sheet .const-cols { gap: 12px; }
 .sheet h2 { break-after: avoid; }
 .sheet table { break-inside: auto; }
 .sheet tr { break-inside: avoid; }
