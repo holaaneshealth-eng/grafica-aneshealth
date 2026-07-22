@@ -60,6 +60,7 @@ function applyEvent(state: CaseState, e: BaseEvent): CaseState {
       return { ...state, safety: { ...state.safety, [p.item as string]: p.value as boolean } };
     case "WHO_CHECK_SET":
       return { ...state, who: { ...state.who, [p.item as string]: p.value as boolean } };
+    // Evento legado (array completo). Se conserva para reproducir casos antiguos.
     case "MONITORING_SELECTED":
       return {
         ...state,
@@ -68,6 +69,24 @@ function applyEvent(state: CaseState, e: BaseEvent): CaseState {
           custom: (p.custom as CaseState["monitoring"]["custom"]) ?? state.monitoring.custom,
         },
       };
+    // Eventos por ítem (a prueba de carreras): cada acción es independiente e idempotente.
+    case "MONITORING_TOGGLED": {
+      const code = p.code as string;
+      const on = p.on as boolean;
+      const has = state.monitoring.standard.includes(code);
+      let standard = state.monitoring.standard;
+      if (on && !has) standard = [...standard, code];
+      else if (!on && has) standard = standard.filter((c) => c !== code);
+      return { ...state, monitoring: { ...state.monitoring, standard } };
+    }
+    case "MONITORING_CUSTOM_ADDED": {
+      const code = p.code as string;
+      if (state.monitoring.custom.some((c) => c.code === code)) return state; // idempotente
+      const item = { code, label: p.label as string, unit: (p.unit as string) ?? "-", chart: (p.chart as boolean) ?? true, color: (p.color as string) ?? "#14b8a6" };
+      return { ...state, monitoring: { ...state.monitoring, custom: [...state.monitoring.custom, item as CaseState["monitoring"]["custom"][number]] } };
+    }
+    case "MONITORING_CUSTOM_REMOVED":
+      return { ...state, monitoring: { ...state.monitoring, custom: state.monitoring.custom.filter((c) => c.code !== (p.code as string)) } };
     case "TECHNIQUE_ADDED":
       return { ...state, techniques: [...state.techniques, p as unknown as TechniqueRecord] };
     case "DRUG_BOLUS":

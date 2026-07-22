@@ -153,35 +153,31 @@ function MonitorSection({ cs }: { cs: CaseState }) {
   const [customName, setCustomName] = useState("");
   const [customUnit, setCustomUnit] = useState("");
 
-  // IMPORTANTE: se lee SIEMPRE el estado más reciente (no la foto del render), para que
-  // al pulsar varios ítems seguidos no se pierdan selecciones por usar un array obsoleto.
+  // Eventos POR ÍTEM: cada acción es independiente, así clicar varios seguidos nunca
+  // pisa otras selecciones (a diferencia del antiguo array completo). Se lee el estado
+  // más reciente solo para decidir el sentido del toggle.
   function currentMonitoring() {
     return useStore.getState().getCaseState(cs.caseId)?.monitoring ?? cs.monitoring;
   }
   function toggle(code: string) {
-    const m = currentMonitoring();
-    const has = m.standard.includes(code);
-    const next = has ? m.standard.filter((c) => c !== code) : [...m.standard, code];
-    append(cs.caseId, "MONITORING_SELECTED", { standard: next, custom: m.custom });
+    const on = !currentMonitoring().standard.includes(code);
+    append(cs.caseId, "MONITORING_TOGGLED", { code, on });
   }
   function addCustom() {
     if (!customName.trim()) return;
-    const m = currentMonitoring();
-    const code = "C_" + customName.trim().toUpperCase().replace(/\s+/g, "_").slice(0, 12);
-    const custom = [
-      ...m.custom,
-      { code, label: customName.trim(), unit: customUnit.trim() || "-", chart: true, color: "#14b8a6" },
-    ];
-    append(cs.caseId, "MONITORING_SELECTED", { standard: m.standard, custom });
+    const code = "C_" + customName.trim().toUpperCase().replace(/\s+/g, "_").slice(0, 12) + "_" + Math.random().toString(36).slice(2, 5);
+    append(cs.caseId, "MONITORING_CUSTOM_ADDED", {
+      code,
+      label: customName.trim(),
+      unit: customUnit.trim() || "-",
+      chart: true,
+      color: "#14b8a6",
+    });
     setCustomName("");
     setCustomUnit("");
   }
   function removeCustom(code: string) {
-    const m = currentMonitoring();
-    append(cs.caseId, "MONITORING_SELECTED", {
-      standard: m.standard,
-      custom: m.custom.filter((c) => c.code !== code),
-    });
+    append(cs.caseId, "MONITORING_CUSTOM_REMOVED", { code });
   }
 
   return (
