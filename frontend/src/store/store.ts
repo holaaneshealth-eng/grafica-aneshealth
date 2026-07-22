@@ -54,6 +54,27 @@ function saveQueue(q: PendingEvent[]): void {
 
 // Mutex: evita que varios flush() concurrentes pisen la cola / descarten eventos optimistas.
 let flushing = false;
+// Estrangula la reconciliación con el servidor para no lanzar un GET tras cada evento.
+let lastReconcileAt = 0;
+const RECONCILE_MIN_MS = 1500;
+
+// Cache de proyección: devuelve la MISMA referencia mientras no cambie el array de
+// eventos, para evitar repintados en cascada y recomputar todo en cada render.
+let stateCache: { root: BaseEvent[]; byCase: Map<string, CaseState | null> } | null = null;
+let timelineCache: { root: BaseEvent[]; byCase: Map<string, TimelineItem[]> } | null = null;
+
+function projectMemo(root: BaseEvent[], id: string): CaseState | null {
+  if (!stateCache || stateCache.root !== root) stateCache = { root, byCase: new Map() };
+  const c = stateCache.byCase;
+  if (!c.has(id)) c.set(id, projectCase(root.filter((e) => e.caseId === id)));
+  return c.get(id) ?? null;
+}
+function timelineMemo(root: BaseEvent[], id: string): TimelineItem[] {
+  if (!timelineCache || timelineCache.root !== root) timelineCache = { root, byCase: new Map() };
+  const c = timelineCache.byCase;
+  if (!c.has(id)) c.set(id, buildTimeline(root.filter((e) => e.caseId === id)));
+  return c.get(id) ?? [];
+}
 
 export function daysUntilPurge(lastActivity: string): number {
   const expiresAt = new Date(lastActivity).getTime() + RETENTION_DAYS * DAY_MS;
@@ -227,21 +248,34 @@ export const useStore = create<AppState>((set, get) => ({
         if (netError) break; // no seguir el bucle si falla la red
       }
 
-      // Reconciliacion con el servidor SOLO si no queda nada pendiente.
-      // Se conservan los eventos locales aun no confirmados (por si llegan durante el await).
+      // Reconciliacion con el servidor SOLO si no queda nada pendiente y no se hizo hace nada.
       const active = get().activeCaseId;
-      if (active && get().pending.length === 0) {
+      if (active && get().pending.length === 0 && Date.now() - lastReconcileAt >= RECONCILE_MIN_MS) {
+        lastReconcileAt = Date.now();
         try {
           const { events } = await api.getEvents(active);
           const serverMapped = events.map(toBaseEvent);
-          const serverIds = new Set(serverMapped.map((e) => e.eventId));
-          set((s) => {
-            const pendingIds = new Set(s.pending.map((q) => q.eventId));
-            const localKeep = s.events.filter(
-              (e) => e.caseId === active && !serverIds.has(e.eventId) && pendingIds.has(e.eventId),
-            );
-            return { events: [...s.events.filter((e) => e.caseId !== active), ...serverMapped, ...localKeep] };
-          });
+          // Salvaguarda: una respuesta vacia/incompleta (p.ej. arranque en frio de Render)
+          // NO debe vaciar el caso activo. Sin CASE_CREATED el estado seria nulo y la UI
+          // se caeria a Home cerrando los modales, asi que se ignora.
+          const hasCreated = serverMapped.some((e) => e.type === "CASE_CREATED");
+          if (serverMapped.length > 0 && hasCreated) {
+            set((s) => {
+              const serverIds = new Set(serverMapped.map((e) => e.eventId));
+              // Union no destructiva: nunca se pierde un evento local (aunque el servidor
+              // aun no lo haya devuelto por retardo de lectura). Los payloads son inmutables.
+              const localOnly = s.events.filter((e) => e.caseId === active && !serverIds.has(e.eventId));
+              const localForActive = s.events.filter((e) => e.caseId === active);
+              // Si el servidor coincide exactamente con lo local, no se toca el array
+              // (evita repintados y churn cada pocos segundos).
+              const unchanged =
+                localOnly.length === 0 &&
+                localForActive.length === serverMapped.length &&
+                serverMapped.every((e) => localForActive.some((l) => l.eventId === e.eventId));
+              if (unchanged) return {};
+              return { events: [...s.events.filter((e) => e.caseId !== active), ...serverMapped, ...localOnly] };
+            });
+          }
           await get().refreshCases();
         } catch {
           /* ignore */
@@ -282,6 +316,6 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   getCaseEvents: (id) => get().events.filter((e) => e.caseId === id),
-  getCaseState: (id) => projectCase(get().events.filter((e) => e.caseId === id)),
-  getTimeline: (id) => buildTimeline(get().events.filter((e) => e.caseId === id)),
+  getCaseState: (id) => projectMemo(get().events, id),
+  getTimeline: (id) => timelineMemo(get().events, id),
 }));

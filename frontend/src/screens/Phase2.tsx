@@ -153,26 +153,34 @@ function MonitorSection({ cs }: { cs: CaseState }) {
   const [customName, setCustomName] = useState("");
   const [customUnit, setCustomUnit] = useState("");
 
+  // IMPORTANTE: se lee SIEMPRE el estado más reciente (no la foto del render), para que
+  // al pulsar varios ítems seguidos no se pierdan selecciones por usar un array obsoleto.
+  function currentMonitoring() {
+    return useStore.getState().getCaseState(cs.caseId)?.monitoring ?? cs.monitoring;
+  }
   function toggle(code: string) {
-    const has = cs.monitoring.standard.includes(code);
-    const next = has ? cs.monitoring.standard.filter((c) => c !== code) : [...cs.monitoring.standard, code];
-    append(cs.caseId, "MONITORING_SELECTED", { standard: next, custom: cs.monitoring.custom });
+    const m = currentMonitoring();
+    const has = m.standard.includes(code);
+    const next = has ? m.standard.filter((c) => c !== code) : [...m.standard, code];
+    append(cs.caseId, "MONITORING_SELECTED", { standard: next, custom: m.custom });
   }
   function addCustom() {
     if (!customName.trim()) return;
+    const m = currentMonitoring();
     const code = "C_" + customName.trim().toUpperCase().replace(/\s+/g, "_").slice(0, 12);
     const custom = [
-      ...cs.monitoring.custom,
+      ...m.custom,
       { code, label: customName.trim(), unit: customUnit.trim() || "-", chart: true, color: "#14b8a6" },
     ];
-    append(cs.caseId, "MONITORING_SELECTED", { standard: cs.monitoring.standard, custom });
+    append(cs.caseId, "MONITORING_SELECTED", { standard: m.standard, custom });
     setCustomName("");
     setCustomUnit("");
   }
   function removeCustom(code: string) {
+    const m = currentMonitoring();
     append(cs.caseId, "MONITORING_SELECTED", {
-      standard: cs.monitoring.standard,
-      custom: cs.monitoring.custom.filter((c) => c.code !== code),
+      standard: m.standard,
+      custom: m.custom.filter((c) => c.code !== code),
     });
   }
 
