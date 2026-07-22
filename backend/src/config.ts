@@ -61,6 +61,9 @@ export const config = {
   seed: {
     adminPassword: process.env.ADMIN_PASSWORD,
     clinicalPasswordPrefix: process.env.CLINICAL_PASSWORD_PREFIX,
+    // "Break-glass": si se define, restablece la contrasena de 'admin' en cada arranque
+    // (sin exigir la politica de fortaleza; es una accion del operador via entorno).
+    adminPasswordReset: process.env.ADMIN_PASSWORD_RESET,
   },
   required,
 };

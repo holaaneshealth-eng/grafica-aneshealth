@@ -72,10 +72,29 @@ export async function seedUsers(): Promise<void> {
 
   // eslint-disable-next-line no-console
   console.log(`\n[seed] Se crearon ${specs.length} usuarios.`);
+  logGenerated(generated);
+}
+
+function logGenerated(generated: string[]): void {
   if (generated.length > 0) {
-    // Se imprimen SOLO las contrasenas generadas automaticamente (para poder recuperarlas
-    // desde los logs del hosting). Cambialas cuanto antes.
     // eslint-disable-next-line no-console
     console.log("[seed] Contrasenas generadas (cambialas en el primer login):\n" + generated.join("\n") + "\n");
   }
+}
+
+/**
+ * Restablece la contrasena de 'admin' si se define ADMIN_PASSWORD_RESET.
+ * No aplica la politica de fortaleza (es una accion explicita del operador via entorno).
+ * Ejecutar en cada arranque; retirar la variable cuando ya no se necesite.
+ */
+export async function resetAdminIfRequested(): Promise<void> {
+  const pw = config.seed.adminPasswordReset;
+  if (!pw) return;
+  const admin = await users.byUsername("admin");
+  if (!admin) return;
+  const hash = await hashPassword(pw);
+  await users.setPassword(admin.id, hash);
+  audit({ action: "ADMIN_PASSWORD_RESET_ENV", targetType: "user", targetId: "admin" });
+  // eslint-disable-next-line no-console
+  console.log("[admin] Contrasena de 'admin' restablecida mediante ADMIN_PASSWORD_RESET.");
 }

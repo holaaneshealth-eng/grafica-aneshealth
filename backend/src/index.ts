@@ -7,7 +7,7 @@ import compression from "compression";
 import cookieParser from "cookie-parser";
 import { config } from "./config";
 import { migrate } from "./db";
-import { seedUsers } from "./seed";
+import { seedUsers, resetAdminIfRequested } from "./seed";
 import { startRetentionJob } from "./retention";
 import { globalLimiter, notFound, errorHandler } from "./middleware";
 import { authRouter } from "./routes/auth.routes";
@@ -24,6 +24,7 @@ process.on("unhandledRejection", (reason) => {
 async function main(): Promise<void> {
   await migrate();
   await seedUsers();
+  await resetAdminIfRequested();
   startRetentionJob();
 
   const app = express();
