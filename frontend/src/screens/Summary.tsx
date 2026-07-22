@@ -368,10 +368,10 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
           </div>
         )}
 
-        {/* Registro seriado (excluye las constantes ya representadas en la gráfica) */}
+        {/* Cronología de constantes (lo más útil como registro temporal; los hitos y fármacos ya están en la gráfica) */}
         {cs.vitals.length > 0 && paramsForTable.length > 0 && (
           <>
-            <h2>Monitorización (registro seriado)</h2>
+            <h2>Cronología de constantes</h2>
             <table className="dense">
               <thead>
                 <tr>
@@ -416,21 +416,6 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
             </table>
           </>
         )}
-
-        <h2>Cronología</h2>
-        <table>
-          <tbody>
-            {timeline.map((it) => (
-              <tr key={it.id}>
-                <td style={{ width: 44 }}>{hhmm(it.at)}</td>
-                <td>
-                  <strong>{it.label}</strong>
-                  {it.detail ? <span className="muted"> · {it.detail}</span> : ""}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
 
         <div className="foot">
           <span>Documento pseudonimizado (RGPD). Identificado únicamente por IA.</span>

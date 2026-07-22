@@ -916,3 +916,17 @@ textarea {
 /* Línea de tiempo dentro de la hoja A4 (fondo claro) */
 .sheet .medtl-row { border-color: #e5e5e5; }
 .sheet .medtl-tick { color: #666; }
+
+/* Leyenda de la gráfica anestésica */
+.anes-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.sheet .anes-legend {
+  font-size: 11px;
+  gap: 10px;
+}
