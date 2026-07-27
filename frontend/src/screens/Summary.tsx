@@ -365,7 +365,10 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
                   {cs.bloodProducts.map((b) => (
                     <tr key={b.id}>
                       <td>{hhmm(b.at)}</td>
-                      <td>{b.product}</td>
+                      <td>
+                        {b.product}
+                        {b.dose ? <div className="muted" style={{ fontSize: 10 }}>{b.dose}</div> : null}
+                      </td>
                       <td>{b.registryNumber || "-"}</td>
                       <td>{b.adverseReaction === true ? "Sí" : b.adverseReaction === false ? "No" : "-"}</td>
                     </tr>

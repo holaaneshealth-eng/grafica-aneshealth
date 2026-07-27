@@ -20,14 +20,23 @@ export type EventType =
   | "INFUSION_RATE_CHANGED"
   | "INFUSION_STOPPED"
   | "VITALS_RECORDED"
+  | "VITALS_UPDATED"
+  | "VITALS_REMOVED"
   | "WEIGHT_UPDATED"
   | "MILESTONE"
   | "MILESTONE_TIME_CHANGED"
   | "MILESTONE_REMOVED"
   | "INCIDENT"
+  | "INCIDENT_REMOVED"
   | "BLOOD_PRODUCT"
+  | "BLOOD_PRODUCT_REMOVED"
   | "LAB_RESULT"
+  | "LAB_REMOVED"
   | "BALANCE"
+  | "BALANCE_REMOVED"
+  | "BOLUS_UPDATED"
+  | "BOLUS_REMOVED"
+  | "INFUSION_REMOVED"
   | "SURGERY_ENDED"
   | "CASE_REOPENED"
   | "CASE_SIGNED"
@@ -144,6 +153,7 @@ export interface BloodProductRecord {
   id: string;
   at: string;
   product: string;
+  dose: string; // campo libre: p.ej. "2 unidades de concentrados de hematíes", "500 ml de PFC"
   adverseReaction: boolean | null;
   registryNumber: string;
 }

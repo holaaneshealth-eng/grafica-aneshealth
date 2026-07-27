@@ -7,6 +7,8 @@ import { AnesthesiaChart } from "../components/AnesthesiaChart";
 import { MedicationTimeline } from "../components/MedicationTimeline";
 import { BloodProductModal } from "../components/BloodProductModal";
 import { LabModal } from "../components/LabModal";
+import { VitalsModal } from "../components/VitalsModal";
+import type { VitalsRecord } from "../domain/events";
 import { hhmm, nowLocalInput, isoFromLocalInput, isoToLocalInput } from "../utils/time";
 import { formatNum } from "../domain/calculations";
 import { EXPOSURE_OPTIONS, insensibleLoss, WHO_PHASES } from "../domain/clinical";
@@ -19,14 +21,14 @@ interface Props {
 
 type Tab = "safety" | "monitor" | "technique" | "record" | "charts";
 
+// Hitos esenciales. Cualquier otro se añade como hito personalizable voluntario.
 const MILESTONES = [
-  "Entrada en quirófano",
-  "Monitor conectado",
-  "Preoxigenación",
-  "Inducción",
-  "Intubación",
-  "Inicio cirugía",
-  "Fin cirugía",
+  "Entrada a quirófano",
+  "Inicio de anestesia",
+  "Inicio de cirugía",
+  "Fin de anestesia",
+  "Fin de cirugía",
+  "Salida de quirófano",
 ];
 
 export function Phase2({ cs, onToast, onAddVitalsAt }: Props) {
@@ -352,8 +354,15 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
   const [showMilestone, setShowMilestone] = useState(false);
   const [msText, setMsText] = useState("");
   const [msTime, setMsTime] = useState(nowLocalInput());
+  const [msLocked, setMsLocked] = useState(false); // hito rápido: etiqueta fija, hora editable
   const [bloodOpen, setBloodOpen] = useState(false);
   const [labOpen, setLabOpen] = useState(false);
+  const [editVitals, setEditVitals] = useState<VitalsRecord | null>(null);
+  // Edición inline de bolos
+  const [editBolusId, setEditBolusId] = useState<string | null>(null);
+  const [ebDose, setEbDose] = useState("");
+  const [ebUnit, setEbUnit] = useState("");
+  const [ebTime, setEbTime] = useState(nowLocalInput());
   const [bleeding, setBleeding] = useState("");
   const [diuresis, setDiuresis] = useState("");
   const [balTime, setBalTime] = useState(nowLocalInput());
@@ -398,9 +407,23 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
   const totalDiuresis = cs.balances.reduce((s, x) => s + (x.diuresisMl ?? 0), 0);
   const totalInsensible = cs.balances.reduce((s, x) => s + (x.insensibleMl ?? 0), 0);
 
-  function milestone(label: string) {
-    append(cs.caseId, "MILESTONE", { id: "m-" + Date.now(), at: new Date().toISOString(), label });
-    onToast?.(`${label} registrado`);
+  // Pulsar un hito rápido NO lo registra al instante: abre el selector de hora
+  // (por defecto la vigente, pero modificable) antes de confirmarlo.
+  function openQuickMilestone(label: string) {
+    setMsText(label);
+    setMsTime(nowLocalInput());
+    setMsLocked(true);
+    setShowMilestone(true);
+  }
+  function openCustomMilestone() {
+    if (showMilestone && !msLocked) {
+      setShowMilestone(false);
+      return;
+    }
+    setMsText("");
+    setMsTime(nowLocalInput());
+    setMsLocked(false);
+    setShowMilestone(true);
   }
   function changeMsTime(id: string, val: string) {
     const at = isoFromLocalInput(val);
@@ -410,6 +433,42 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
     append(cs.caseId, "MILESTONE_REMOVED", { id });
     onToast?.("Hito eliminado");
   }
+
+  // Borrado de registros (permitido mientras la hoja no esté firmada).
+  function removeVitals(id: string) {
+    append(cs.caseId, "VITALS_REMOVED", { id });
+    onToast?.("Constante eliminada");
+  }
+  function removeBolus(id: string) {
+    append(cs.caseId, "BOLUS_REMOVED", { id });
+    onToast?.("Bolo eliminado");
+  }
+  function removeInfusion(id: string) {
+    append(cs.caseId, "INFUSION_REMOVED", { id });
+    onToast?.("Perfusión eliminada");
+  }
+  function removeBlood(id: string) {
+    append(cs.caseId, "BLOOD_PRODUCT_REMOVED", { id });
+    onToast?.("Hemoderivado eliminado");
+  }
+  function removeLab(id: string) {
+    append(cs.caseId, "LAB_REMOVED", { id });
+    onToast?.("Analítica eliminada");
+  }
+  function startEditBolus(b: (typeof cs.boluses)[number]) {
+    setEditBolusId(b.id);
+    setEbDose(String(b.dose));
+    setEbUnit(b.unit);
+    setEbTime(isoToLocalInput(b.at));
+  }
+  function saveEditBolus() {
+    if (!editBolusId) return;
+    const d = parseFloat(ebDose.replace(",", "."));
+    const at = isoFromLocalInput(ebTime);
+    append(cs.caseId, "BOLUS_UPDATED", { id: editBolusId, dose: isFinite(d) ? d : undefined, unit: ebUnit || undefined, at }, at);
+    setEditBolusId(null);
+    onToast?.("Bolo modificado");
+  }
   function addCustomMilestone() {
     if (!msText.trim()) return;
     const at = isoFromLocalInput(msTime);
@@ -417,6 +476,7 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
     setMsText("");
     setMsTime(nowLocalInput());
     setShowMilestone(false);
+    setMsLocked(false);
     onToast?.("Hito registrado");
   }
 
@@ -425,30 +485,37 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
   return (
     <div>
       <div className="card">
-        <h2>Hitos rápidos</h2>
-        <p className="sub">Un toque = un evento con hora automática.</p>
+        <h2>Hitos</h2>
+        <p className="sub">Al pulsar un hito eliges la hora (por defecto la actual, modificable). Añade los que quieras como personalizados.</p>
         <div className="chips">
           {MILESTONES.map((m) => (
-            <button key={m} className="chip" onClick={() => milestone(m)}>
+            <button key={m} className={`chip ${msLocked && msText === m && showMilestone ? "on" : ""}`} onClick={() => openQuickMilestone(m)}>
               {m}
             </button>
           ))}
-          <button className={`chip ${showMilestone ? "on" : ""}`} onClick={() => setShowMilestone((v) => !v)}>
+          <button className={`chip ${showMilestone && !msLocked ? "on" : ""}`} onClick={openCustomMilestone}>
             + Hito personalizado
           </button>
         </div>
         {showMilestone && (
           <div className="card" style={{ marginTop: 12, background: "var(--bg)" }}>
+            {msLocked ? (
+              <div className="field">
+                <label>Hito</label>
+                <div style={{ fontWeight: 700, fontSize: 16 }}>{msText}</div>
+              </div>
+            ) : (
+              <div className="field">
+                <label>Descripción del hito</label>
+                <input type="text" value={msText} onChange={(e) => setMsText(e.target.value)} placeholder="Ej. Clampaje aórtico" autoFocus />
+              </div>
+            )}
             <div className="field">
-              <label>Descripción del hito</label>
-              <input type="text" value={msText} onChange={(e) => setMsText(e.target.value)} placeholder="Ej. Clampaje aórtico" autoFocus />
-            </div>
-            <div className="field">
-              <label>Hora</label>
+              <label>Hora {msLocked ? "(modifícala si no es la actual)" : ""}</label>
               <input type="datetime-local" value={msTime} onChange={(e) => setMsTime(e.target.value)} />
             </div>
             <button className="btn primary block" onClick={addCustomMilestone} disabled={!msText.trim()}>
-              Añadir hito
+              Registrar hito
             </button>
           </div>
         )}
@@ -486,6 +553,92 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
           <h2>Fármacos (línea de tiempo)</h2>
           <p className="sub">Bolus como rombos; perfusiones como barra con sus ritmos. Vuelve a pulsar un fármaco en curso para cambiar el ritmo (0 = fin).</p>
           <MedicationTimeline cs={cs} />
+
+          <div className="section-title" style={{ margin: "14px 0 6px" }}>Registros de fármacos (editar hora/dosis o eliminar)</div>
+          <div className="pill-list">
+            {cs.boluses
+              .slice()
+              .sort((a, b) => a.at.localeCompare(b.at))
+              .map((b) => {
+                const isConcVol = !!(b.concentration && b.volumeMl);
+                return editBolusId === b.id ? (
+                  <div className="pill" key={b.id} style={{ flexWrap: "wrap", gap: 8 }}>
+                    <strong style={{ width: "100%" }}>{b.drug}</strong>
+                    {!isConcVol && (
+                      <>
+                        <input inputMode="decimal" type="text" value={ebDose} onChange={(e) => setEbDose(e.target.value)} style={{ width: 90 }} placeholder="Dosis" />
+                        <input type="text" value={ebUnit} onChange={(e) => setEbUnit(e.target.value)} style={{ width: 80 }} placeholder="Unidad" />
+                      </>
+                    )}
+                    <input type="datetime-local" className="ms-time" value={ebTime} onChange={(e) => setEbTime(e.target.value)} />
+                    <button className="btn primary" style={{ minHeight: 40, padding: "0 12px" }} onClick={saveEditBolus}>
+                      Guardar
+                    </button>
+                    <button className="btn ghost" style={{ minHeight: 40, padding: "0 12px" }} onClick={() => setEditBolusId(null)}>
+                      Cancelar
+                    </button>
+                  </div>
+                ) : (
+                  <div className="pill" key={b.id}>
+                    <span className="t">{hhmm(b.at)}</span>
+                    <span className="m">
+                      <strong>{b.drug}</strong>
+                      <div className="sm">
+                        {isConcVol ? `${formatNum(b.volumeMl!)} ml · ${formatNum(b.concentration!)}% (bolus)` : `${formatNum(b.dose)} ${b.unit} (bolus)`}
+                      </div>
+                    </span>
+                    <button className="btn ghost" style={{ minHeight: 40, padding: "0 12px" }} onClick={() => startEditBolus(b)} title="Editar bolo">
+                      ✎
+                    </button>
+                    <button className="btn ghost" style={{ minHeight: 40, padding: "0 12px" }} onClick={() => removeBolus(b.id)} title="Eliminar bolo">
+                      ✕
+                    </button>
+                  </div>
+                );
+              })}
+            {cs.infusions.map((inf) => (
+              <div className="pill" key={inf.id}>
+                <span className="t">{hhmm(inf.startedAt)}</span>
+                <span className="m">
+                  <strong>{inf.drug}</strong> <small className="muted">perfusión</small>
+                  <div className="sm">{inf.summary}{inf.active ? " · en curso" : inf.stoppedAt ? ` · fin ${hhmm(inf.stoppedAt)}` : ""}</div>
+                </span>
+                <button className="btn ghost" style={{ minHeight: 40, padding: "0 12px" }} onClick={() => removeInfusion(inf.id)} title="Eliminar perfusión">
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {cs.vitals.length > 0 && (
+        <div className="card">
+          <h2>Constantes registradas (editar o eliminar)</h2>
+          <p className="sub">Puedes corregir valores u hora, o eliminar registros hasta que se firme la hoja.</p>
+          <div className="pill-list">
+            {cs.vitals
+              .slice()
+              .sort((a, b) => a.at.localeCompare(b.at))
+              .map((v) => (
+                <div className="pill" key={v.id}>
+                  <span className="t">{hhmm(v.at)}</span>
+                  <span className="m">
+                    <div className="sm">
+                      {Object.entries(v.values)
+                        .map(([k, val]) => `${k} ${formatNum(val)}`)
+                        .join("  ·  ")}
+                    </div>
+                  </span>
+                  <button className="btn ghost" style={{ minHeight: 40, padding: "0 12px" }} onClick={() => setEditVitals(v)} title="Editar constantes">
+                    ✎
+                  </button>
+                  <button className="btn ghost" style={{ minHeight: 40, padding: "0 12px" }} onClick={() => removeVitals(v.id)} title="Eliminar registro">
+                    ✕
+                  </button>
+                </div>
+              ))}
+          </div>
         </div>
       )}
 
@@ -505,11 +658,15 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
                 <span className="t">{hhmm(b.at)}</span>
                 <span className="m">
                   <strong>{b.product}</strong>
+                  {b.dose ? <div className="sm">{b.dose}</div> : null}
                   <div className="sm">
                     {b.registryNumber ? `Nº ${b.registryNumber}` : "Sin nº"}
                     {b.adverseReaction === true ? " · reacción adversa: Sí" : b.adverseReaction === false ? " · reacción: No" : ""}
                   </div>
                 </span>
+                <button className="btn ghost" style={{ minHeight: 40, padding: "0 12px" }} onClick={() => removeBlood(b.id)} title="Eliminar hemoderivado">
+                  ✕
+                </button>
               </div>
             ))}
           </div>
@@ -538,6 +695,9 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
                   </div>
                   {l.notes && <div className="sm">{l.notes}</div>}
                 </span>
+                <button className="btn ghost" style={{ minHeight: 40, padding: "0 12px" }} onClick={() => removeLab(l.id)} title="Eliminar analítica">
+                  ✕
+                </button>
               </div>
             ))}
           </div>
@@ -636,6 +796,7 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
 
       {bloodOpen && <BloodProductModal cs={cs} onClose={() => setBloodOpen(false)} onDone={toast} />}
       {labOpen && <LabModal cs={cs} onClose={() => setLabOpen(false)} onDone={toast} />}
+      {editVitals && <VitalsModal cs={cs} edit={editVitals} onClose={() => setEditVitals(null)} onDone={toast} />}
     </div>
   );
 }

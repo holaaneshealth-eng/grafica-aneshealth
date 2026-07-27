@@ -23,6 +23,7 @@ const PRODUCTS = [
 export function BloodProductModal({ cs, onClose, onDone }: Props) {
   const append = useStore((s) => s.append);
   const [product, setProduct] = useState("");
+  const [dose, setDose] = useState("");
   const [time, setTime] = useState(nowLocalInput());
   const [adverse, setAdverse] = useState<boolean | null>(null);
   const [registry, setRegistry] = useState("");
@@ -33,7 +34,7 @@ export function BloodProductModal({ cs, onClose, onDone }: Props) {
     append(
       cs.caseId,
       "BLOOD_PRODUCT",
-      { id: "bp-" + Date.now(), at, product: product.trim(), adverseReaction: adverse, registryNumber: registry.trim() },
+      { id: "bp-" + Date.now(), at, product: product.trim(), dose: dose.trim(), adverseReaction: adverse, registryNumber: registry.trim() },
       at,
     );
     onDone("Hemoderivado registrado");
@@ -52,6 +53,11 @@ export function BloodProductModal({ cs, onClose, onDone }: Props) {
           ))}
         </div>
         <input type="text" placeholder="Otro producto" value={product} onChange={(e) => setProduct(e.target.value)} />
+      </div>
+
+      <div className="field">
+        <label>Dosis / cantidad (campo libre)</label>
+        <input type="text" value={dose} onChange={(e) => setDose(e.target.value)} placeholder="Ej. 2 unidades de concentrados de hematíes · 500 ml de PFC" />
       </div>
 
       <TimeField value={time} onChange={setTime} />

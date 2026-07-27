@@ -3,7 +3,7 @@ import { Modal } from "./Modal";
 import { TimeField } from "./TimeField";
 import { STANDARD_PARAMS, findParam } from "../domain/monitoring";
 import { useStore } from "../store/store";
-import type { CaseState } from "../domain/events";
+import type { CaseState, VitalsRecord } from "../domain/events";
 import { nowLocalInput, isoFromLocalInput, isoToLocalInput } from "../utils/time";
 
 interface Props {
@@ -11,9 +11,10 @@ interface Props {
   onClose: () => void;
   onDone: (msg: string) => void;
   initialTime?: string; // ISO, cuando se abre tocando la gráfica
+  edit?: VitalsRecord; // cuando se edita un registro existente
 }
 
-export function VitalsModal({ cs, onClose, onDone, initialTime }: Props) {
+export function VitalsModal({ cs, onClose, onDone, initialTime, edit }: Props) {
   const append = useStore((s) => s.append);
 
   const params = useMemo(() => {
@@ -21,14 +22,15 @@ export function VitalsModal({ cs, onClose, onDone, initialTime }: Props) {
     return [...STANDARD_PARAMS, ...custom];
   }, [cs.monitoring]);
 
-  // Arrastre de valores: precarga el último registro para editar solo lo que cambia.
+  // Al editar se precarga el propio registro; si no, el último (arrastre de valores).
   const lastVitals = useMemo(() => cs.vitals.slice().sort((a, b) => b.at.localeCompare(a.at))[0], [cs.vitals]);
+  const seed = edit ?? (initialTime ? undefined : lastVitals);
   const [values, setValues] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {};
-    if (lastVitals) for (const [k, v] of Object.entries(lastVitals.values)) init[k] = String(v);
+    if (seed) for (const [k, v] of Object.entries(seed.values)) init[k] = String(v);
     return init;
   });
-  const [time, setTime] = useState(initialTime ? isoToLocalInput(initialTime) : nowLocalInput());
+  const [time, setTime] = useState(edit ? isoToLocalInput(edit.at) : initialTime ? isoToLocalInput(initialTime) : nowLocalInput());
 
   function bump(code: string, delta: number) {
     setValues((v) => {
@@ -47,15 +49,20 @@ export function VitalsModal({ cs, onClose, onDone, initialTime }: Props) {
     }
     if (Object.keys(parsed).length === 0) return;
     const at = isoFromLocalInput(time);
-    append(cs.caseId, "VITALS_RECORDED", { id: "v-" + Date.now(), at, values: parsed, source: "manual" }, at);
-    onDone("Constantes registradas");
+    if (edit) {
+      append(cs.caseId, "VITALS_UPDATED", { id: edit.id, at, values: parsed }, at);
+      onDone("Constantes modificadas");
+    } else {
+      append(cs.caseId, "VITALS_RECORDED", { id: "v-" + Date.now(), at, values: parsed, source: "manual" }, at);
+      onDone("Constantes registradas");
+    }
     onClose();
   }
 
   return (
-    <Modal title="Registro de constantes" onClose={onClose}>
+    <Modal title={edit ? "Editar constantes" : "Registro de constantes"} onClose={onClose}>
       <TimeField value={time} onChange={setTime} label="Hora del registro" />
-      {lastVitals && <div className="alert">Precargado con el último registro. Ajusta solo lo que cambie.</div>}
+      {!edit && lastVitals && <div className="alert">Precargado con el último registro. Ajusta solo lo que cambie.</div>}
       <div className="vital-grid">
         {params.map((p) => {
           const def = findParam(p.code, cs.monitoring.custom);
@@ -86,7 +93,7 @@ export function VitalsModal({ cs, onClose, onDone, initialTime }: Props) {
       </div>
       <div className="alert">Rellena solo los campos que quieras. La hora es editable.</div>
       <button className="btn primary block lg" onClick={save}>
-        Guardar constantes
+        {edit ? "Guardar cambios" : "Guardar constantes"}
       </button>
     </Modal>
   );

@@ -17,14 +17,17 @@ export const CHARTED = new Set(["FC", "TAS", "TAD", "TAM"]);
 
 // Abreviaturas de hitos frecuentes para rotularlos de forma legible en la gráfica.
 const MS_CODES: { match: RegExp; code: string }[] = [
-  { match: /entrada|quir[oó]fano/i, code: "ENT" },
+  { match: /salida/i, code: "SAL" }, // antes que "entrada" para no confundir "Salida de quirófano"
+  { match: /entrada/i, code: "ENT" },
+  { match: /inicio.*anest/i, code: "IAN" },
+  { match: /fin.*anest/i, code: "FAN" },
+  { match: /inicio.*cirug|incisi[oó]n/i, code: "INC" },
+  { match: /fin.*cirug|cierre/i, code: "FIN" },
   { match: /monitor/i, code: "MON" },
   { match: /preox/i, code: "PRE" },
   { match: /inducc/i, code: "IND" },
   { match: /intub/i, code: "IOT" },
   { match: /mascarilla|lar[ií]ngea|lma/i, code: "LMA" },
-  { match: /incisi[oó]n|inicio.*cirug/i, code: "INC" },
-  { match: /fin.*cirug|cierre/i, code: "FIN" },
   { match: /extub/i, code: "EXT" },
   { match: /despertar|educci[oó]n/i, code: "DES" },
   { match: /torniquete/i, code: "TQ" },
@@ -67,10 +70,10 @@ export function AnesthesiaChart({ cs, light, onTimeClick }: Props) {
   const strong = light ? "#222" : "#e8eef4";
 
   const model = useMemo(() => {
-    const vitals = cs.vitals.slice().sort((a, b) => a.at.localeCompare(b.at));
+    const allVitals = cs.vitals.slice().sort((a, b) => a.at.localeCompare(b.at));
     const drugs = Array.from(new Set([...cs.boluses.map((b) => b.drug), ...cs.infusions.map((i) => i.drug)]));
     const times: number[] = [new Date(cs.createdAt).getTime()];
-    vitals.forEach((v) => times.push(new Date(v.at).getTime()));
+    allVitals.forEach((v) => times.push(new Date(v.at).getTime()));
     cs.boluses.forEach((b) => times.push(new Date(b.at).getTime()));
     cs.infusions.forEach((i) => {
       times.push(new Date(i.startedAt).getTime());
@@ -81,14 +84,26 @@ export function AnesthesiaChart({ cs, light, onTimeClick }: Props) {
     cs.incidents.forEach((i) => times.push(new Date(i.at).getTime()));
     const end = cs.endedAt ? new Date(cs.endedAt).getTime() : Date.now();
     times.push(end);
-    const t0 = Math.min(...times);
-    const t1 = Math.max(...times, t0 + 60000);
+    // La gráfica se acota al rango [entrada a quirófano, salida de quirófano] si existen
+    // esos hitos; fuera de ese intervalo no se plasma ningún dato.
+    const entradaMs = cs.milestones.find((m) => /entrada/i.test(m.label));
+    const salidaMs = cs.milestones.find((m) => /salida/i.test(m.label));
+    const rawT0 = Math.min(...times);
+    const rawT1 = Math.max(...times, rawT0 + 60000);
+    let t0 = entradaMs ? new Date(entradaMs.at).getTime() : rawT0;
+    let t1 = salidaMs ? new Date(salidaMs.at).getTime() : rawT1;
+    if (t1 <= t0) t1 = t0 + 60000; // salvaguarda ante horas incoherentes
+    const inRange = (iso: string) => {
+      const t = new Date(iso).getTime();
+      return t >= t0 - 1000 && t <= t1 + 1000;
+    };
+    const vitals = allVitals.filter((v) => inRange(v.at));
     let maxVal = 160;
     vitals.forEach((v) => ["TAS", "TAM", "FC", "TAD"].forEach((k) => {
       const nn = v.values[k];
       if (typeof nn === "number" && nn > maxVal) maxVal = nn;
     }));
-    return { vitals, drugs, t0, t1, span: Math.max(1, t1 - t0), yMax: Math.ceil((maxVal + 10) / 20) * 20 };
+    return { vitals, drugs, t0, t1, span: Math.max(1, t1 - t0), yMax: Math.ceil((maxVal + 10) / 20) * 20, inRange };
   }, [cs]);
 
   const lanesBottom = lanesTop + model.drugs.length * laneH;
@@ -109,7 +124,9 @@ export function AnesthesiaChart({ cs, light, onTimeClick }: Props) {
   const events = [
     ...cs.milestones.map((m) => ({ at: m.at, code: milestoneCode(m.label), full: m.label, color: light ? "#0e7c7b" : "#2dd4bf" })),
     ...cs.incidents.map((i) => ({ at: i.at, code: "⚠", full: "Incidencia", color: "#ef4444" })),
-  ].sort((a, b) => a.at.localeCompare(b.at));
+  ]
+    .filter((ev) => model.inRange(ev.at))
+    .sort((a, b) => a.at.localeCompare(b.at));
   // Leyenda de hitos: código -> etiqueta (solo hitos, sin duplicados).
   const milestoneLegend = Array.from(
     new Map(cs.milestones.map((m) => [milestoneCode(m.label), m.label])).entries(),
@@ -185,7 +202,7 @@ export function AnesthesiaChart({ cs, light, onTimeClick }: Props) {
         {model.drugs.map((drug, idx) => {
           const color = PALETTE[idx % PALETTE.length];
           const y = lanesTop + idx * laneH + laneH / 2;
-          const boluses = cs.boluses.filter((b) => b.drug === drug);
+          const boluses = cs.boluses.filter((b) => b.drug === drug && model.inRange(b.at));
           const infusions = cs.infusions.filter((i) => i.drug === drug);
           return (
             <g key={drug}>

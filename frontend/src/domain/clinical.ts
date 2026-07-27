@@ -136,6 +136,7 @@ export const WHO_PHASES: { phase: string; items: { key: string; label: string }[
       { key: "in_anesthesia", label: "Comprobación de anestesia y medicación completada" },
       { key: "in_pulseox", label: "Pulsioxímetro colocado y funcionando" },
       { key: "in_allergy", label: "Alergias conocidas revisadas" },
+      { key: "in_fasting", label: "Ayuno preoperatorio correcto" },
       { key: "in_airway", label: "Vía aérea difícil / riesgo de aspiración valorado" },
       { key: "in_bleeding", label: "Riesgo de hemorragia >500 ml (7 ml/kg niños) valorado" },
     ],

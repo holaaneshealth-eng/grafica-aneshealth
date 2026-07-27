@@ -146,8 +146,41 @@ function applyEvent(state: CaseState, e: BaseEvent): CaseState {
       return { ...state, preop: { ...state.preop, weightKg: p.weightKg as number } };
     case "VITALS_RECORDED":
       return { ...state, vitals: [...state.vitals, p as unknown as VitalsRecord] };
+    case "VITALS_UPDATED":
+      return {
+        ...state,
+        vitals: state.vitals.map((v) =>
+          v.id === p.id
+            ? { ...v, ...(p.at ? { at: p.at as string } : {}), ...(p.values ? { values: p.values as Record<string, number> } : {}) }
+            : v,
+        ),
+      };
+    case "VITALS_REMOVED":
+      return { ...state, vitals: state.vitals.filter((v) => v.id !== p.id) };
+    case "BOLUS_UPDATED":
+      return {
+        ...state,
+        boluses: state.boluses.map((b) =>
+          b.id === p.id
+            ? {
+                ...b,
+                ...(p.dose != null ? { dose: p.dose as number } : {}),
+                ...(p.unit ? { unit: p.unit as string } : {}),
+                ...(p.at ? { at: p.at as string } : {}),
+                ...(p.concentration != null ? { concentration: p.concentration as number } : {}),
+                ...(p.volumeMl != null ? { volumeMl: p.volumeMl as number } : {}),
+              }
+            : b,
+        ),
+      };
+    case "BOLUS_REMOVED":
+      return { ...state, boluses: state.boluses.filter((b) => b.id !== p.id) };
+    case "INFUSION_REMOVED":
+      return { ...state, infusions: state.infusions.filter((i) => i.id !== p.id) };
     case "INCIDENT":
       return { ...state, incidents: [...state.incidents, p as unknown as IncidentRecord] };
+    case "INCIDENT_REMOVED":
+      return { ...state, incidents: state.incidents.filter((i) => i.id !== p.id) };
     case "MILESTONE":
       return { ...state, milestones: [...state.milestones, p as unknown as MilestoneRecord] };
     case "MILESTONE_TIME_CHANGED":
@@ -156,10 +189,16 @@ function applyEvent(state: CaseState, e: BaseEvent): CaseState {
       return { ...state, milestones: state.milestones.filter((m) => m.id !== p.id) };
     case "BLOOD_PRODUCT":
       return { ...state, bloodProducts: [...state.bloodProducts, p as unknown as BloodProductRecord] };
+    case "BLOOD_PRODUCT_REMOVED":
+      return { ...state, bloodProducts: state.bloodProducts.filter((b) => b.id !== p.id) };
     case "LAB_RESULT":
       return { ...state, labs: [...state.labs, p as unknown as LabRecord] };
+    case "LAB_REMOVED":
+      return { ...state, labs: state.labs.filter((l) => l.id !== p.id) };
     case "BALANCE":
       return { ...state, balances: [...state.balances, p as unknown as BalanceRecord] };
+    case "BALANCE_REMOVED":
+      return { ...state, balances: state.balances.filter((b) => b.id !== p.id) };
     case "SURGERY_ENDED":
       return { ...state, phase: "CLOSED", endedAt: e.occurredAt };
     case "CASE_REOPENED":
@@ -177,10 +216,27 @@ export function buildTimeline(events: BaseEvent[]): TimelineItem[] {
   const voided = new Set<string>();
   const removedMs = new Set<string>();
   const msTimeChange = new Map<string, string>();
+  // Borrados/ediciones de registros (por id de registro, no de evento).
+  const removedRec = new Set<string>();
+  const vitalsUpdate = new Map<string, { at?: string; values?: Record<string, number> }>();
+  const bolusUpdate = new Map<string, { dose?: number; unit?: string; at?: string }>();
   events.forEach((e) => {
-    if (e.type === "EVENT_VOIDED") voided.add((e.payload.targetId as string) ?? "");
-    if (e.type === "MILESTONE_REMOVED") removedMs.add((e.payload.id as string) ?? "");
-    if (e.type === "MILESTONE_TIME_CHANGED") msTimeChange.set((e.payload.id as string) ?? "", e.payload.at as string);
+    const pp = e.payload;
+    if (e.type === "EVENT_VOIDED") voided.add((pp.targetId as string) ?? "");
+    if (e.type === "MILESTONE_REMOVED") removedMs.add((pp.id as string) ?? "");
+    if (e.type === "MILESTONE_TIME_CHANGED") msTimeChange.set((pp.id as string) ?? "", pp.at as string);
+    if (
+      e.type === "VITALS_REMOVED" ||
+      e.type === "BOLUS_REMOVED" ||
+      e.type === "INFUSION_REMOVED" ||
+      e.type === "BLOOD_PRODUCT_REMOVED" ||
+      e.type === "LAB_REMOVED" ||
+      e.type === "INCIDENT_REMOVED"
+    ) {
+      removedRec.add((pp.id as string) ?? "");
+    }
+    if (e.type === "VITALS_UPDATED") vitalsUpdate.set((pp.id as string) ?? "", { at: pp.at as string, values: pp.values as Record<string, number> });
+    if (e.type === "BOLUS_UPDATED") bolusUpdate.set((pp.id as string) ?? "", { dose: pp.dose as number, unit: pp.unit as string, at: pp.at as string });
   });
 
   for (const e of events) {
@@ -196,16 +252,23 @@ export function buildTimeline(events: BaseEvent[]): TimelineItem[] {
         items.push({ id: e.eventId, at: msTimeChange.get(mid) ?? e.occurredAt, kind: "milestone", label: p.label as string });
         break;
       }
-      case "DRUG_BOLUS":
+      case "DRUG_BOLUS": {
+        const bid = (p.id as string) ?? "";
+        if (removedRec.has(bid)) break;
+        const up = bolusUpdate.get(bid);
+        const dose = up?.dose ?? (p.dose as number);
+        const unit = up?.unit ?? (p.unit as string);
         items.push({
           id: e.eventId,
-          at: e.occurredAt,
+          at: up?.at ?? e.occurredAt,
           kind: "drug",
           label: `${p.drug}`,
-          detail: `${p.dose} ${p.unit} (bolus)`,
+          detail: `${dose} ${unit} (bolus)`,
         });
         break;
+      }
       case "INFUSION_STARTED":
+        if (removedRec.has((p.id as string) ?? "")) break;
         items.push({
           id: e.eventId,
           at: e.occurredAt,
@@ -215,6 +278,7 @@ export function buildTimeline(events: BaseEvent[]): TimelineItem[] {
         });
         break;
       case "INFUSION_RATE_CHANGED": {
+        if (removedRec.has((p.id as string) ?? "")) break;
         const stop = p.gasPercent !== undefined ? p.gasPercent === 0 : p.rateMlH === 0;
         items.push({
           id: e.eventId,
@@ -226,33 +290,41 @@ export function buildTimeline(events: BaseEvent[]): TimelineItem[] {
         break;
       }
       case "INFUSION_STOPPED":
+        if (removedRec.has((p.id as string) ?? "")) break;
         items.push({ id: e.eventId, at: e.occurredAt, kind: "infusion", label: `Fin perfusión ${p.drug}` });
         break;
       case "TECHNIQUE_ADDED":
         items.push({ id: e.eventId, at: e.occurredAt, kind: "technique", label: p.label as string });
         break;
-      case "VITALS_RECORDED":
+      case "VITALS_RECORDED": {
+        const vid = (p.id as string) ?? "";
+        if (removedRec.has(vid)) break;
+        const up = vitalsUpdate.get(vid);
         items.push({
           id: e.eventId,
-          at: e.occurredAt,
+          at: up?.at ?? e.occurredAt,
           kind: "vitals",
           label: "Registro monitorización",
-          detail: summarizeVitals(p.values as Record<string, number>),
+          detail: summarizeVitals((up?.values ?? p.values) as Record<string, number>),
         });
         break;
+      }
       case "INCIDENT":
+        if (removedRec.has((p.id as string) ?? "")) break;
         items.push({ id: e.eventId, at: e.occurredAt, kind: "incident", label: "Incidencia", detail: p.text as string });
         break;
       case "BLOOD_PRODUCT":
+        if (removedRec.has((p.id as string) ?? "")) break;
         items.push({
           id: e.eventId,
           at: e.occurredAt,
           kind: "blood",
           label: p.product as string,
-          detail: `Hemoderivado${p.registryNumber ? ` · nº ${p.registryNumber}` : ""}${p.adverseReaction === true ? " · REACCIÓN ADVERSA" : ""}`,
+          detail: `Hemoderivado${p.dose ? ` · ${p.dose}` : ""}${p.registryNumber ? ` · nº ${p.registryNumber}` : ""}${p.adverseReaction === true ? " · REACCIÓN ADVERSA" : ""}`,
         });
         break;
       case "LAB_RESULT":
+        if (removedRec.has((p.id as string) ?? "")) break;
         items.push({ id: e.eventId, at: e.occurredAt, kind: "lab", label: "Analítica intraoperatoria", detail: summarizeLab(p) });
         break;
       case "WEIGHT_UPDATED":
