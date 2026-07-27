@@ -13,7 +13,8 @@ const bodySchema = z.object({
   imageBase64: z.string().min(16).max(2_000_000),
   filename: z.string().min(1).max(160),
   mimeType: z.string().max(60).default("image/png"),
-  subject: z.string().max(200).optional(),
+  ia: z.string().max(80).optional(),
+  subject: z.string().max(200).optional(), // compatibilidad; el asunto se fuerza en el servidor
 });
 
 // Envía la imagen de la hoja anestésica como adjunto por correo (para automatizar su
@@ -33,10 +34,12 @@ mailRouter.post("/send", async (req, res, next) => {
       return;
     }
 
-    const { imageBase64, filename, subject } = parsed.data;
+    const { imageBase64, filename, ia } = parsed.data;
     const content = imageBase64.includes(",") ? imageBase64.slice(imageBase64.indexOf(",") + 1) : imageBase64;
-    // El asunto contiene siempre "Hoja anestesica" (palabra clave del disparador de Power Automate).
-    const subj = subject && subject.trim() ? subject.trim() : "Hoja anestesica";
+    // El asunto se construye SIEMPRE en el servidor y contiene "Hoja anestesica" (sin tilde),
+    // que es la palabra clave del disparador de Power Automate. No depende del navegador.
+    const cleanIa = (ia ?? "").trim().replace(/[\r\n]/g, "");
+    const subj = `Hoja anestesica${cleanIa ? " " + cleanIa : ""}`;
 
     const resp = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -81,7 +84,7 @@ mailRouter.post("/send", async (req, res, next) => {
       userAgent: req.get("user-agent"),
       success: true,
     });
-    res.json({ ok: true, to: config.mail.to });
+    res.json({ ok: true, to: config.mail.to, subject: subj });
   } catch (err) {
     next(err);
   }

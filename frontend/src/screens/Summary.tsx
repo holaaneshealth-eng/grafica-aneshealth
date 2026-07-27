@@ -171,9 +171,9 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
         imageBase64: dataUrl,
         filename: `hoja-anestesica-${cs.ia}.${ext}`,
         mimeType: blob.type,
-        subject: `Hoja anestesica ${cs.ia}`,
+        ia: cs.ia,
       });
-      setMailMsg({ ok: true, text: `Imagen enviada a ${r.to} (${kb} KB). Revisa la bandeja de entrada y la carpeta de correo no deseado.` });
+      setMailMsg({ ok: true, text: `Enviado a ${r.to} (${kb} KB) · asunto: "${r.subject}". Revisa la bandeja de entrada y el correo no deseado.` });
       onToast(`Imagen enviada a ${r.to}`);
     } catch (err) {
       const detail = err instanceof ApiError ? `${err.message} (código ${err.status}${err.code ? " · " + err.code : ""})` : err instanceof Error ? err.message : "error desconocido";

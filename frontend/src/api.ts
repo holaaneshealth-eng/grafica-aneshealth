@@ -126,8 +126,8 @@ export const api = {
   voidEvent: (id: string, targetEventId: string, reason: string) =>
     request<{ ok: true }>(`/cases/${id}/void`, "POST", { targetEventId, reason }),
   deleteCase: (id: string) => request<{ ok: true }>(`/cases/${id}`, "DELETE"),
-  sendSheetEmail: (payload: { imageBase64: string; filename: string; mimeType: string; subject?: string }) =>
-    request<{ ok: true; to: string }>("/mail/send", "POST", payload),
+  sendSheetEmail: (payload: { imageBase64: string; filename: string; mimeType: string; ia?: string }) =>
+    request<{ ok: true; to: string; subject: string }>("/mail/send", "POST", payload),
 
   listUsers: () => request<{ users: AdminUserRow[] }>("/users"),
   createUser: (u: { username: string; displayName: string; role: string; location?: string; password: string }) =>
