@@ -24,6 +24,7 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
   const getTimeline = useStore((s) => s.getTimeline);
   const timeline = getTimeline(cs.caseId);
   const [busy, setBusy] = useState(false);
+  const [mailMsg, setMailMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   // La tabla seriada excluye las constantes que ya se representan en la gráfica.
   const paramsForTable = [
@@ -153,26 +154,33 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
   }
 
   // Envía la imagen de la hoja al correo configurado (para archivarla p. ej. vía Power Automate).
+  // El resultado se muestra de forma persistente para poder diagnosticar cualquier fallo.
   async function emailImage() {
     setBusy(true);
+    setMailMsg(null);
     try {
       const { blob, ext } = await buildImageBlob();
       const dataUrl: string = await new Promise((res, rej) => {
         const fr = new FileReader();
-        fr.onerror = () => rej(new Error("read"));
+        fr.onerror = () => rej(new Error("no se pudo leer la imagen"));
         fr.onload = () => res(String(fr.result));
         fr.readAsDataURL(blob);
       });
+      const kb = Math.round(blob.size / 1024);
       const r = await api.sendSheetEmail({
         imageBase64: dataUrl,
         filename: `hoja-anestesica-${cs.ia}.${ext}`,
         mimeType: blob.type,
         subject: `Hoja anestesica ${cs.ia}`,
       });
+      setMailMsg({ ok: true, text: `Imagen enviada a ${r.to} (${kb} KB). Revisa la bandeja de entrada y la carpeta de correo no deseado.` });
       onToast(`Imagen enviada a ${r.to}`);
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : "No se pudo enviar el correo";
-      onToast(msg);
+      const detail = err instanceof ApiError ? `${err.message} (código ${err.status}${err.code ? " · " + err.code : ""})` : err instanceof Error ? err.message : "error desconocido";
+      // eslint-disable-next-line no-console
+      console.error("[email] fallo al enviar la hoja:", err);
+      setMailMsg({ ok: false, text: `No se pudo enviar: ${detail}` });
+      onToast("No se pudo enviar el correo");
     } finally {
       setBusy(false);
     }
@@ -238,6 +246,11 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
         <p className="sub" style={{ marginTop: 8 }}>
           "Enviar imagen al correo" adjunta la hoja (imagen) y la manda al buzón configurado; el asunto incluye "Hoja anestesica" para que tu automatización la archive en OneDrive.
         </p>
+        {mailMsg && (
+          <div className={`alert ${mailMsg.ok ? "" : "danger"}`} style={{ marginTop: 8 }}>
+            {mailMsg.text}
+          </div>
+        )}
         {cs.signedAt ? (
           <div className="alert" style={{ marginTop: 12 }}>
             Firmada por {cs.signedBy} el {dmy(cs.signedAt)} a las {hhmm(cs.signedAt)}.
