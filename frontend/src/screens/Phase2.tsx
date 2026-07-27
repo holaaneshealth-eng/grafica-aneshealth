@@ -8,6 +8,7 @@ import { MedicationTimeline } from "../components/MedicationTimeline";
 import { BloodProductModal } from "../components/BloodProductModal";
 import { LabModal } from "../components/LabModal";
 import { VitalsModal } from "../components/VitalsModal";
+import { Modal } from "../components/Modal";
 import type { VitalsRecord } from "../domain/events";
 import { hhmm, nowLocalInput, isoFromLocalInput, isoToLocalInput } from "../utils/time";
 import { formatNum } from "../domain/calculations";
@@ -358,6 +359,8 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
   const [bloodOpen, setBloodOpen] = useState(false);
   const [labOpen, setLabOpen] = useState(false);
   const [editVitals, setEditVitals] = useState<VitalsRecord | null>(null);
+  // Confirmación de borrado (evita eliminaciones accidentales de un toque).
+  const [pendingDelete, setPendingDelete] = useState<{ msg: string; act: () => void } | null>(null);
   // Edición inline de bolos
   const [editBolusId, setEditBolusId] = useState<string | null>(null);
   const [ebDose, setEbDose] = useState("");
@@ -434,7 +437,10 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
     onToast?.("Hito eliminado");
   }
 
-  // Borrado de registros (permitido mientras la hoja no esté firmada).
+  // Borrado de registros (permitido mientras la hoja no esté firmada). Pide confirmación.
+  function askDelete(msg: string, act: () => void) {
+    setPendingDelete({ msg, act });
+  }
   function removeVitals(id: string) {
     append(cs.caseId, "VITALS_REMOVED", { id });
     onToast?.("Constante eliminada");
@@ -538,7 +544,12 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
                       value={isoToLocalInput(m.at)}
                       onChange={(e) => changeMsTime(m.id, e.target.value)}
                     />
-                    <button className="btn ghost" style={{ minHeight: 40, padding: "0 12px" }} onClick={() => removeMs(m.id)} title="Eliminar hito">
+                    <button
+                      className="btn ghost"
+                      style={{ minHeight: 40, padding: "0 12px" }}
+                      onClick={() => askDelete(`¿Eliminar el hito "${m.label}"?`, () => removeMs(m.id))}
+                      title="Eliminar hito"
+                    >
                       ✕
                     </button>
                   </div>
@@ -590,7 +601,12 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
                     <button className="btn ghost" style={{ minHeight: 40, padding: "0 12px" }} onClick={() => startEditBolus(b)} title="Editar bolo">
                       ✎
                     </button>
-                    <button className="btn ghost" style={{ minHeight: 40, padding: "0 12px" }} onClick={() => removeBolus(b.id)} title="Eliminar bolo">
+                    <button
+                      className="btn ghost"
+                      style={{ minHeight: 40, padding: "0 12px" }}
+                      onClick={() => askDelete(`¿Eliminar el bolo de ${b.drug} (${hhmm(b.at)})?`, () => removeBolus(b.id))}
+                      title="Eliminar bolo"
+                    >
                       ✕
                     </button>
                   </div>
@@ -603,7 +619,12 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
                   <strong>{inf.drug}</strong> <small className="muted">perfusión</small>
                   <div className="sm">{inf.summary}{inf.active ? " · en curso" : inf.stoppedAt ? ` · fin ${hhmm(inf.stoppedAt)}` : ""}</div>
                 </span>
-                <button className="btn ghost" style={{ minHeight: 40, padding: "0 12px" }} onClick={() => removeInfusion(inf.id)} title="Eliminar perfusión">
+                <button
+                  className="btn ghost"
+                  style={{ minHeight: 40, padding: "0 12px" }}
+                  onClick={() => askDelete(`¿Eliminar la perfusión de ${inf.drug}?`, () => removeInfusion(inf.id))}
+                  title="Eliminar perfusión"
+                >
                   ✕
                 </button>
               </div>
@@ -633,7 +654,12 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
                   <button className="btn ghost" style={{ minHeight: 40, padding: "0 12px" }} onClick={() => setEditVitals(v)} title="Editar constantes">
                     ✎
                   </button>
-                  <button className="btn ghost" style={{ minHeight: 40, padding: "0 12px" }} onClick={() => removeVitals(v.id)} title="Eliminar registro">
+                  <button
+                    className="btn ghost"
+                    style={{ minHeight: 40, padding: "0 12px" }}
+                    onClick={() => askDelete(`¿Eliminar el registro de constantes de las ${hhmm(v.at)}?`, () => removeVitals(v.id))}
+                    title="Eliminar registro"
+                  >
                     ✕
                   </button>
                 </div>
@@ -664,7 +690,12 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
                     {b.adverseReaction === true ? " · reacción adversa: Sí" : b.adverseReaction === false ? " · reacción: No" : ""}
                   </div>
                 </span>
-                <button className="btn ghost" style={{ minHeight: 40, padding: "0 12px" }} onClick={() => removeBlood(b.id)} title="Eliminar hemoderivado">
+                <button
+                  className="btn ghost"
+                  style={{ minHeight: 40, padding: "0 12px" }}
+                  onClick={() => askDelete(`¿Eliminar el hemoderivado "${b.product}"?`, () => removeBlood(b.id))}
+                  title="Eliminar hemoderivado"
+                >
                   ✕
                 </button>
               </div>
@@ -695,7 +726,12 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
                   </div>
                   {l.notes && <div className="sm">{l.notes}</div>}
                 </span>
-                <button className="btn ghost" style={{ minHeight: 40, padding: "0 12px" }} onClick={() => removeLab(l.id)} title="Eliminar analítica">
+                <button
+                  className="btn ghost"
+                  style={{ minHeight: 40, padding: "0 12px" }}
+                  onClick={() => askDelete(`¿Eliminar la analítica de las ${hhmm(l.at)}?`, () => removeLab(l.id))}
+                  title="Eliminar analítica"
+                >
                   ✕
                 </button>
               </div>
@@ -797,6 +833,26 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
       {bloodOpen && <BloodProductModal cs={cs} onClose={() => setBloodOpen(false)} onDone={toast} />}
       {labOpen && <LabModal cs={cs} onClose={() => setLabOpen(false)} onDone={toast} />}
       {editVitals && <VitalsModal cs={cs} edit={editVitals} onClose={() => setEditVitals(null)} onDone={toast} />}
+      {pendingDelete && (
+        <Modal title="Confirmar eliminación" onClose={() => setPendingDelete(null)}>
+          <p style={{ marginTop: 0 }}>{pendingDelete.msg}</p>
+          <p className="sub">Esta acción se puede volver a registrar, pero el borrado quedará en el histórico.</p>
+          <div className="grid2">
+            <button className="btn ghost lg" onClick={() => setPendingDelete(null)}>
+              Cancelar
+            </button>
+            <button
+              className="btn danger lg"
+              onClick={() => {
+                pendingDelete.act();
+                setPendingDelete(null);
+              }}
+            >
+              Eliminar
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
