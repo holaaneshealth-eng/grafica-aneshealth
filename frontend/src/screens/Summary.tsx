@@ -4,6 +4,7 @@ import html2canvas from "html2canvas";
 import type { CaseState } from "../domain/events";
 import { useStore } from "../store/store";
 import { AnesthesiaChart, CHARTED } from "../components/AnesthesiaChart";
+import { api, ApiError } from "../api";
 import { dmy, hhmm, durationBetween } from "../utils/time";
 import { STANDARD_PARAMS } from "../domain/monitoring";
 import { formatNum } from "../domain/calculations";
@@ -97,44 +98,48 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
     }
   }
 
-  // Exporta la hoja como imagen garantizando un tamaño <= 870 KB (PNG o, si no cabe, JPG).
+  // Genera la imagen de la hoja garantizando un tamaño <= 870 KB (PNG o, si no cabe, JPG).
+  async function buildImageBlob(): Promise<{ blob: Blob; ext: string }> {
+    const LIMIT = 870 * 1024;
+    const base = await renderCanvas();
+    const toBlob = (c: HTMLCanvasElement, type: string, q?: number) =>
+      new Promise<Blob>((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error("blob"))), type, q));
+    const scaleCanvas = (src: HTMLCanvasElement, f: number) => {
+      const c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(src.width * f));
+      c.height = Math.max(1, Math.round(src.height * f));
+      const ctx = c.getContext("2d")!;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(src, 0, 0, c.width, c.height);
+      return c;
+    };
+
+    let blob = await toBlob(base, "image/png");
+    let ext = "png";
+    // Si el PNG supera el límite, pasamos a JPG bajando calidad.
+    if (blob.size > LIMIT) {
+      ext = "jpg";
+      for (const q of [0.92, 0.85, 0.75, 0.65, 0.55]) {
+        blob = await toBlob(base, "image/jpeg", q);
+        if (blob.size <= LIMIT) break;
+      }
+    }
+    // Si aún no cabe, reducimos escala progresivamente (manteniéndolo legible).
+    let f = 0.85;
+    while (blob.size > LIMIT && f >= 0.3) {
+      blob = await toBlob(scaleCanvas(base, f), "image/jpeg", 0.7);
+      ext = "jpg";
+      f -= 0.15;
+    }
+    return { blob, ext };
+  }
+
   async function exportImage() {
     setBusy(true);
     try {
-      const LIMIT = 870 * 1024;
-      const base = await renderCanvas();
-      const toBlob = (c: HTMLCanvasElement, type: string, q?: number) =>
-        new Promise<Blob>((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error("blob"))), type, q));
-      const scaleCanvas = (src: HTMLCanvasElement, f: number) => {
-        const c = document.createElement("canvas");
-        c.width = Math.max(1, Math.round(src.width * f));
-        c.height = Math.max(1, Math.round(src.height * f));
-        const ctx = c.getContext("2d")!;
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, c.width, c.height);
-        ctx.imageSmoothingQuality = "high";
-        ctx.drawImage(src, 0, 0, c.width, c.height);
-        return c;
-      };
-
-      let blob = await toBlob(base, "image/png");
-      let ext = "png";
-      // Si el PNG supera el límite, pasamos a JPG bajando calidad.
-      if (blob.size > LIMIT) {
-        ext = "jpg";
-        for (const q of [0.92, 0.85, 0.75, 0.65, 0.55]) {
-          blob = await toBlob(base, "image/jpeg", q);
-          if (blob.size <= LIMIT) break;
-        }
-      }
-      // Si aún no cabe, reducimos escala progresivamente (manteniéndolo legible).
-      let f = 0.85;
-      while (blob.size > LIMIT && f >= 0.3) {
-        blob = await toBlob(scaleCanvas(base, f), "image/jpeg", 0.7);
-        ext = "jpg";
-        f -= 0.15;
-      }
-
+      const { blob, ext } = await buildImageBlob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.download = `hoja-anestesica-${cs.ia}.${ext}`;
@@ -142,6 +147,32 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
       link.click();
       URL.revokeObjectURL(url);
       onToast(`Imagen ${ext.toUpperCase()} · ${Math.round(blob.size / 1024)} KB`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Envía la imagen de la hoja al correo configurado (para archivarla p. ej. vía Power Automate).
+  async function emailImage() {
+    setBusy(true);
+    try {
+      const { blob, ext } = await buildImageBlob();
+      const dataUrl: string = await new Promise((res, rej) => {
+        const fr = new FileReader();
+        fr.onerror = () => rej(new Error("read"));
+        fr.onload = () => res(String(fr.result));
+        fr.readAsDataURL(blob);
+      });
+      const r = await api.sendSheetEmail({
+        imageBase64: dataUrl,
+        filename: `hoja-anestesica-${cs.ia}.${ext}`,
+        mimeType: blob.type,
+        subject: `Hoja anestesica ${cs.ia}`,
+      });
+      onToast(`Imagen enviada a ${r.to}`);
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "No se pudo enviar el correo";
+      onToast(msg);
     } finally {
       setBusy(false);
     }
@@ -198,9 +229,15 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
             Imprimir
           </button>
           <button className="btn lg" onClick={sendEmail}>
-            Enviar por email
+            Email (texto)
+          </button>
+          <button className="btn primary lg" onClick={emailImage} disabled={busy}>
+            {busy ? "Enviando..." : "Enviar imagen al correo"}
           </button>
         </div>
+        <p className="sub" style={{ marginTop: 8 }}>
+          "Enviar imagen al correo" adjunta la hoja (imagen) y la manda al buzón configurado; el asunto incluye "Hoja anestesica" para que tu automatización la archive en OneDrive.
+        </p>
         {cs.signedAt ? (
           <div className="alert" style={{ marginTop: 12 }}>
             Firmada por {cs.signedBy} el {dmy(cs.signedAt)} a las {hhmm(cs.signedAt)}.

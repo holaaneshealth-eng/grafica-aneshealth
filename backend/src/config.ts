@@ -52,6 +52,14 @@ export const config = {
   corsOrigin: process.env.CORS_ORIGIN ?? "",
   // Politica de retencion (autoborrado)
   retentionDays: parseInt(process.env.RETENTION_DAYS ?? "15", 10),
+  // Envío de correo (imagen de la hoja anestésica). Usa la API HTTP de Resend.
+  mail: {
+    resendApiKey: process.env.RESEND_API_KEY ?? "",
+    // Remitente verificado en el proveedor. Por defecto el dominio de pruebas de Resend.
+    from: process.env.MAIL_FROM ?? "AnesHealth <onboarding@resend.dev>",
+    // Destinatario del correo con la imagen adjunta.
+    to: process.env.MAIL_TO ?? "adrian.fernandez@ext.vithas.es",
+  },
   // Bloqueo por intentos fallidos
   maxFailedLogins: parseInt(process.env.MAX_FAILED_LOGINS ?? "5", 10),
   lockoutMinutes: parseInt(process.env.LOCKOUT_MINUTES ?? "15", 10),

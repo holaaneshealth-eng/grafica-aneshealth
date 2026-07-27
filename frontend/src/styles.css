@@ -426,23 +426,26 @@ textarea {
 .vital-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  padding: 8px 12px;
+  padding: 8px 10px;
 }
 .vital-row .vname {
   flex: 1;
+  min-width: 0; /* permite que el nombre se ajuste y evita el scroll horizontal */
   font-weight: 600;
 }
 .vital-row .vunit {
   color: var(--text-dim);
-  width: 60px;
+  width: 46px;
+  flex-shrink: 0;
   font-size: 13px;
 }
 .vital-row input {
-  width: 68px;
+  width: 64px;
+  flex-shrink: 0;
   text-align: center;
   font-size: 19px;
   font-variant-numeric: tabular-nums;
@@ -509,6 +512,7 @@ textarea {
   max-width: 640px;
   max-height: 92vh;
   overflow-y: auto;
+  overflow-x: hidden; /* la ventana se despliega a lo ancho sin barra horizontal */
   padding: 18px 18px calc(24px + var(--safe-b));
   box-shadow: var(--shadow);
 }

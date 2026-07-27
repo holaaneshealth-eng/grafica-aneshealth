@@ -9,6 +9,7 @@ import { BloodProductModal } from "../components/BloodProductModal";
 import { LabModal } from "../components/LabModal";
 import { VitalsModal } from "../components/VitalsModal";
 import { Modal } from "../components/Modal";
+import { TimeField } from "../components/TimeField";
 import type { VitalsRecord } from "../domain/events";
 import { hhmm, nowLocalInput, isoFromLocalInput, isoToLocalInput } from "../utils/time";
 import { formatNum } from "../domain/calculations";
@@ -232,17 +233,24 @@ function TechniqueSection({ cs }: { cs: CaseState }) {
   const append = useStore((s) => s.append);
   const [openId, setOpenId] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, string | boolean | number>>({});
+  const [techTime, setTechTime] = useState(nowLocalInput());
 
   function saveTechnique(id: string) {
     const def = techniqueById(id);
     if (!def) return;
-    append(cs.caseId, "TECHNIQUE_ADDED", {
-      id: "t-" + Date.now(),
-      type: id,
-      label: def.label,
-      details,
-      at: new Date().toISOString(),
-    });
+    const at = isoFromLocalInput(techTime);
+    append(
+      cs.caseId,
+      "TECHNIQUE_ADDED",
+      {
+        id: "t-" + Date.now(),
+        type: id,
+        label: def.label,
+        details,
+        at,
+      },
+      at,
+    );
     setOpenId(null);
     setDetails({});
   }
@@ -279,6 +287,7 @@ function TechniqueSection({ cs }: { cs: CaseState }) {
             onClick={() => {
               setOpenId(openId === t.id ? null : t.id);
               setDetails({});
+              setTechTime(nowLocalInput());
             }}
           >
             {t.label}
@@ -289,6 +298,7 @@ function TechniqueSection({ cs }: { cs: CaseState }) {
       {openId && (
         <div className="card" style={{ marginTop: 14, background: "var(--bg)" }}>
           <h2 style={{ fontSize: 16 }}>{techniqueById(openId)?.label}</h2>
+          <TimeField value={techTime} onChange={setTechTime} label="Hora de realización" />
           {techniqueById(openId)!.fields.map((f) => (
             <FieldInput key={f.key} field={f} value={details[f.key]} onChange={(v) => setDetails((d) => ({ ...d, [f.key]: v }))} />
           ))}
@@ -335,11 +345,13 @@ function FieldInput({
         </div>
       )}
       {(field.type === "text" || field.type === "number") && (
+        // Se guarda el texto tal cual (incluidos decimales como "0,5" o "1.5"): convertir a
+        // número en cada pulsación borraba el separador decimal e impedía escribir decimales.
         <input
           type="text"
           inputMode={field.type === "number" ? "decimal" : "text"}
           value={(value as string) ?? ""}
-          onChange={(e) => onChange(field.type === "number" ? parseFloat(e.target.value.replace(",", ".")) || 0 : e.target.value)}
+          onChange={(e) => onChange(e.target.value)}
         />
       )}
     </div>

@@ -323,7 +323,11 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
             </div>
           )}
 
-          <TimeField value={time} onChange={setTime} />
+          <TimeField
+            value={time}
+            onChange={setTime}
+            label={showChangeMode ? "Hora del cambio" : mode === "infusion" ? "Hora de inicio de la perfusión" : "Hora de administración"}
+          />
 
           {mode === "bolus" ? (
             isConcVol ? (
