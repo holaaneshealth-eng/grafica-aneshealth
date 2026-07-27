@@ -27,3 +27,14 @@ services:
         sync: false
       - key: RETENTION_DAYS
         value: "15"
+      # Envio de la imagen de la hoja por correo (servicio Resend: https://resend.com).
+      # RESEND_API_KEY es SECRETA: se introduce en el panel de Render, nunca en el repo.
+      - key: RESEND_API_KEY
+        sync: false
+      # Remitente. Debe ser un dominio verificado en Resend para entregar a buzones externos.
+      # Por defecto (sin verificar dominio) usa el dominio de pruebas de Resend.
+      - key: MAIL_FROM
+        sync: false
+      # Destinatario de la hoja anestesica.
+      - key: MAIL_TO
+        value: adrian.fernandez@ext.vithas.es
