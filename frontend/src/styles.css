@@ -709,21 +709,23 @@ textarea {
 .sheet .sheet-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 .sheet table.dense th, .sheet table.dense td { padding: 2px 4px; font-size: 10px; }
 .sheet .const-table { width: 100%; }
-.sheet .const-table th, .sheet .const-table td { padding: 1px 3px; font-size: 8.5px; }
+.sheet .const-table th, .sheet .const-table td { padding: 2px 4px; font-size: 11px; }
 .sheet .const-cols { gap: 12px; }
 .sheet h2 { break-after: avoid; }
 .sheet table { break-inside: auto; }
 
-/* Cabecera compacta: una línea (título + código + fecha) y una segunda línea de resumen */
-.sheet .sheet-head2 { display: flex; align-items: baseline; gap: 10px; border-bottom: 2px solid #0e7c7b; padding-bottom: 5px; }
+/* Cabecera compacta en una sola línea: título + código + inicio/fin/alergias/antibiótico + fecha */
+.sheet .sheet-head2 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 12px; border-bottom: 2px solid #0e7c7b; padding-bottom: 5px; }
 .sheet .sheet-title2 { font-size: 16px; font-weight: 800; color: #111; }
 .sheet .sheet-ia2 { font-size: 15px; font-weight: 800; letter-spacing: .5px; color: #0e7c7b; }
+.sheet .sheet-hdr { font-size: 12.5px; color: #222; }
+.sheet .sheet-hdr b { color: #000; }
 .sheet .sheet-date2 { font-size: 12px; color: #555; margin-left: auto; }
-.sheet .sheet-summary-line { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 12.5px; color: #222; margin: 6px 0 2px; }
-.sheet .sheet-summary-line b { color: #000; }
 /* Valoración preanestésica y técnicas: texto más grande para legibilidad al reducir el zoom (SAP) */
 .sheet .sheet-preop td { font-size: 13.5px; padding: 3px 6px; color: #222; }
-.sheet .sheet-ok { font-size: 14px; font-weight: 800; color: #0e7c7b; }
+/* Checklist de seguridad y OMS: títulos y contenido reducidos */
+.sheet .sheet-h2-mini { font-size: 10px; letter-spacing: .5px; margin: 10px 0 3px; padding-bottom: 2px; }
+.sheet .sheet-mini { font-size: 9.5px; color: #333; }
 .sheet tr { break-inside: avoid; }
 
 /* Botón flotante para marcar fin de perfusión */
@@ -948,18 +950,16 @@ textarea {
   font-size: 11px;
   gap: 10px;
 }
-.anes-legend-ms {
-  font-size: 12px;
-  font-weight: 500;
-  opacity: 0.92;
-  border-top: 1px dashed var(--line);
-  padding-top: 6px;
+/* Leyenda unificada en una sola línea (símbolos + abreviaturas de hitos) */
+.anes-legend-1 {
+  row-gap: 2px;
 }
-.anes-legend-ms b {
+.anes-legend-1 b {
   font-weight: 700;
 }
-.sheet .anes-legend-ms {
-  font-size: 10px;
+.sheet .anes-legend-1 {
+  font-size: 9.5px;
+  gap: 4px 10px;
 }
 /* Tabla de la calculadora pediátrica */
 .mini-table th,

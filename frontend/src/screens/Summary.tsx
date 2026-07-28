@@ -32,18 +32,6 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
     ...cs.monitoring.custom.filter((c) => !STANDARD_PARAMS.some((s) => s.code === c.code)),
   ];
 
-  // Totales acumulados de fármacos (bolus) por fármaco + unidad.
-  const drugTotals = (() => {
-    const map = new Map<string, { drug: string; unit: string; total: number }>();
-    for (const b of cs.boluses) {
-      const key = `${b.drug}|${b.unit}`;
-      const e = map.get(key) ?? { drug: b.drug, unit: b.unit, total: 0 };
-      e.total += b.dose;
-      map.set(key, e);
-    }
-    return Array.from(map.values());
-  })();
-
   const totalBleeding = cs.balances.reduce((s, x) => s + (x.bleedingMl ?? 0), 0);
   const totalDiuresis = cs.balances.reduce((s, x) => s + (x.diuresisMl ?? 0), 0);
   const totalInsensible = cs.balances.reduce((s, x) => s + (x.insensibleMl ?? 0), 0);
@@ -274,26 +262,24 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
         <div className="sheet-head2">
           <span className="sheet-title2">Hoja Anestésica</span>
           <span className="sheet-ia2">{cs.ia}</span>
-          <span className="sheet-date2">{dmy(cs.createdAt)}</span>
-        </div>
-        <div className="sheet-summary-line">
-          <span>
+          <span className="sheet-hdr">
             <b>Inicio</b> {hhmm(cs.createdAt)}
           </span>
-          <span>
+          <span className="sheet-hdr">
             <b>Fin</b> {cs.endedAt ? hhmm(cs.endedAt) : "-"}
           </span>
-          <span>
+          <span className="sheet-hdr">
             <b>Alergias:</b> {cs.preop.allergies || "-"}
           </span>
-          <span>
+          <span className="sheet-hdr">
             <b>Antibiótico:</b> {antibioticLine}
           </span>
           {cs.preop.breastfeeding === true && (
-            <span>
+            <span className="sheet-hdr">
               <b>Lactancia:</b> Sí
             </span>
           )}
+          <span className="sheet-date2">{dmy(cs.createdAt)}</span>
         </div>
 
         {/* Bloque compacto en dos columnas */}
@@ -312,12 +298,12 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
                 </tr>
               </tbody>
             </table>
-            <h2>Checklist de seguridad</h2>
-            <div className="sheet-ok">{safetyOk ? "✓ OK" : "—"}</div>
+            <h2 className="sheet-h2-mini">Checklist de seguridad</h2>
+            <div className="sheet-mini" style={{ fontWeight: 700, color: "#0e7c7b" }}>{safetyOk ? "✓ OK" : "—"}</div>
             {whoAnyChecked && (
               <>
-                <h2>Checklist de la OMS</h2>
-                <div style={{ fontSize: 12.5, color: "#222" }}>
+                <h2 className="sheet-h2-mini">Checklist de la OMS</h2>
+                <div className="sheet-mini">
                   {whoDone.map((p) => `${p.phase.split(" ·")[0]}: ${p.done}/${p.total}`).join(" · ")}
                 </div>
               </>
@@ -353,16 +339,6 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
         {/* Gráfica anestésica integrada (hemodinámica + fármacos + eventos) */}
         <h2>Gráfica anestésica</h2>
         <AnesthesiaChart cs={cs} light />
-
-        {/* Totales acumulados de fármacos (bolus) */}
-        {drugTotals.length > 0 && (
-          <>
-            <h2>Totales de fármacos (bolus)</h2>
-            <div className="muted" style={{ fontSize: 11 }}>
-              {drugTotals.map((t) => `${t.drug}: ${formatNum(t.total)} ${t.unit}`).join("  ·  ")}
-            </div>
-          </>
-        )}
 
         {/* Balance (solo si hay datos) */}
         {cs.balances.length > 0 && (

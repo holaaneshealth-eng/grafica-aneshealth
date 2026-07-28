@@ -248,25 +248,19 @@ export function AnesthesiaChart({ cs, light, onTimeClick }: Props) {
         ))}
       </svg>
 
-      {/* Leyenda legible (HTML, no se escala) */}
-      <div className="anes-legend">
-        <span style={{ color: col("TAS", light) }}>▮ TA (sís/diás)</span>
+      {/* Leyenda en una sola línea: símbolos + abreviaturas de hitos (HTML, no se escala) */}
+      <div className="anes-legend anes-legend-1">
+        <span style={{ color: col("TAS", light) }}>▮ TA</span>
         <span style={{ color: col("TAM", light) }}>● TAM</span>
         <span style={{ color: col("FC", light) }}>◆ FC</span>
         <span style={{ color: light ? "#0e7c7b" : "#2dd4bf" }}>┊ hitos</span>
-        <span style={{ color: "#ef4444" }}>┊ incidencias</span>
+        <span style={{ color: "#ef4444" }}>┊ incid.</span>
+        {milestoneLegend.map(([code, label]) => (
+          <span key={code} style={{ color: light ? "#0e7c7b" : "#2dd4bf" }}>
+            <b>{code}</b>={label}
+          </span>
+        ))}
       </div>
-
-      {/* Leyenda de abreviaturas de hitos */}
-      {milestoneLegend.length > 0 && (
-        <div className="anes-legend anes-legend-ms">
-          {milestoneLegend.map(([code, label]) => (
-            <span key={code} style={{ color: light ? "#0e7c7b" : "#2dd4bf" }}>
-              <b>{code}</b> = {label}
-            </span>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
