@@ -90,7 +90,7 @@ function SafetySection({ cs }: { cs: CaseState }) {
   return (
     <div className="card">
       <h2>Checklist de seguridad</h2>
-      <p className="sub">Obligatorio confirmar cada punto. "No" queda registrado explícitamente.</p>
+      <p className="sub">Todos los puntos deben quedar en "Sí" (OK). Si alguno no está OK, no se puede proseguir a la generación de la gráfica.</p>
       {items.map((it) => (
         <div className="check-row" key={it.key}>
           <span className="label">{it.label}</span>
@@ -871,6 +871,8 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
 
 export function phase2Ready(cs: CaseState): boolean {
   const s = cs.safety;
-  const safetyDone = [s.monitorChecked, s.ventilatorChecked, s.suctionReady, s.ambuReady].every((v) => v !== null);
-  return safetyDone && cs.monitoring.standard.length + cs.monitoring.custom.length > 0 && cs.techniques.length > 0;
+  // Todos los puntos de seguridad deben estar en OK (Sí). Si alguno no lo está,
+  // no se puede proseguir a la generación de la gráfica.
+  const safetyOk = [s.monitorChecked, s.ventilatorChecked, s.suctionReady, s.ambuReady].every((v) => v === true);
+  return safetyOk && cs.monitoring.standard.length + cs.monitoring.custom.length > 0 && cs.techniques.length > 0;
 }

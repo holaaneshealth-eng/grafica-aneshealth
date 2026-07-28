@@ -5,7 +5,7 @@ import type { CaseState } from "../domain/events";
 import { useStore } from "../store/store";
 import { AnesthesiaChart, CHARTED } from "../components/AnesthesiaChart";
 import { api, ApiError } from "../api";
-import { dmy, hhmm, durationBetween } from "../utils/time";
+import { dmy, hhmm } from "../utils/time";
 import { STANDARD_PARAMS } from "../domain/monitoring";
 import { formatNum } from "../domain/calculations";
 import { WHO_PHASES } from "../domain/clinical";
@@ -55,6 +55,9 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
     total: ph.items.length,
   }));
   const whoAnyChecked = whoDone.some((p) => p.done > 0);
+
+  // El checklist de seguridad se resume como OK (el gating impide llegar aquí si no lo está).
+  const safetyOk = [cs.safety.monitorChecked, cs.safety.ventilatorChecked, cs.safety.suctionReady, cs.safety.ambuReady].every((v) => v === true);
 
   async function renderCanvas(): Promise<HTMLCanvasElement> {
     return html2canvas(sheetRef.current!, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
@@ -268,73 +271,53 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
 
       {/* Hoja A4 */}
       <div className="sheet" ref={sheetRef}>
-        <div className="sheet-head">
-          <div>
-            <h1>Hoja Anestésica</h1>
-            <div className="muted">AnesHealth · Registro digital orientado a eventos</div>
-          </div>
-          <div style={{ textAlign: "right" }}>
-            <div className="sheet-ia">{cs.ia}</div>
-            <div className="muted">{dmy(cs.createdAt)}</div>
-          </div>
+        <div className="sheet-head2">
+          <span className="sheet-title2">Hoja Anestésica</span>
+          <span className="sheet-ia2">{cs.ia}</span>
+          <span className="sheet-date2">{dmy(cs.createdAt)}</span>
         </div>
-
-        <table style={{ marginTop: 8 }}>
-          <tbody>
-            <tr>
-              <td className="muted">Inicio</td>
-              <td>{hhmm(cs.createdAt)}</td>
-              <td className="muted">Fin</td>
-              <td>{cs.endedAt ? hhmm(cs.endedAt) : "-"}</td>
-              <td className="muted">Duración</td>
-              <td>{cs.endedAt ? durationBetween(cs.createdAt, cs.endedAt) : "-"}</td>
-              <td className="muted">Talla / Peso</td>
-              <td>
-                {cs.preop.heightCm ?? "-"} cm / {cs.preop.weightKg ?? "-"} kg
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div className="sheet-summary-line">
+          <span>
+            <b>Inicio</b> {hhmm(cs.createdAt)}
+          </span>
+          <span>
+            <b>Fin</b> {cs.endedAt ? hhmm(cs.endedAt) : "-"}
+          </span>
+          <span>
+            <b>Alergias:</b> {cs.preop.allergies || "-"}
+          </span>
+          <span>
+            <b>Antibiótico:</b> {antibioticLine}
+          </span>
+          {cs.preop.breastfeeding === true && (
+            <span>
+              <b>Lactancia:</b> Sí
+            </span>
+          )}
+        </div>
 
         {/* Bloque compacto en dos columnas */}
         <div className="sheet-cols">
           <div>
             <h2>Valoración preanestésica</h2>
-            <table>
+            <table className="sheet-preop">
               <tbody>
                 <tr>
-                  <td className="muted" style={{ width: 110 }}>Alergias</td>
-                  <td>{cs.preop.allergies || "-"}</td>
-                </tr>
-                <tr>
-                  <td className="muted">Antecedentes</td>
+                  <td className="muted" style={{ width: 96 }}>Antecedentes</td>
                   <td>{cs.preop.history || "-"}</td>
                 </tr>
                 <tr>
                   <td className="muted">Medicación</td>
                   <td>{cs.preop.medication || "-"}</td>
                 </tr>
-                <tr>
-                  <td className="muted">Antibiótico</td>
-                  <td>{antibioticLine}</td>
-                </tr>
-                {cs.preop.breastfeeding != null && (
-                  <tr>
-                    <td className="muted">Lactancia</td>
-                    <td>{cs.preop.breastfeeding ? "Sí (activa)" : "No"}</td>
-                  </tr>
-                )}
               </tbody>
             </table>
             <h2>Checklist de seguridad</h2>
-            <div className="muted" style={{ fontSize: 11 }}>
-              Monitor: {yn(cs.safety.monitorChecked)} · Respirador: {yn(cs.safety.ventilatorChecked)} · Aspirador:{" "}
-              {yn(cs.safety.suctionReady)} · Ambú: {yn(cs.safety.ambuReady)}
-            </div>
+            <div className="sheet-ok">{safetyOk ? "✓ OK" : "—"}</div>
             {whoAnyChecked && (
               <>
                 <h2>Checklist de la OMS</h2>
-                <div className="muted" style={{ fontSize: 11 }}>
+                <div style={{ fontSize: 12.5, color: "#222" }}>
                   {whoDone.map((p) => `${p.phase.split(" ·")[0]}: ${p.done}/${p.total}`).join(" · ")}
                 </div>
               </>
@@ -351,8 +334,8 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
                     <tr key={t.id}>
                       <td style={{ width: 44 }}>{hhmm(t.at)}</td>
                       <td>
-                        <strong>{t.label}</strong>
-                        <div className="muted" style={{ fontSize: 10 }}>
+                        <strong style={{ fontSize: 14 }}>{t.label}</strong>
+                        <div style={{ fontSize: 12.5, color: "#222" }}>
                           {Object.entries(t.details)
                             .filter(([, v]) => v !== "" && v != null)
                             .map(([k, v]) => `${k}: ${String(v)}`)
@@ -520,10 +503,6 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
       </div>
     </div>
   );
-}
-
-function yn(v: boolean | null): string {
-  return v === true ? "Sí" : v === false ? "No" : "-";
 }
 
 function buildTextSummary(cs: CaseState, timeline: { at: string; label: string; detail?: string }[]): string {
