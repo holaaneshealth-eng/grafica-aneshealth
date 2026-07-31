@@ -3,7 +3,7 @@ import { Modal } from "./Modal";
 import { TimeField } from "./TimeField";
 import { TemplatePanel } from "./TemplatePanel";
 import { DRUG_UNITS, drugByName, drugsForMode, dilutionsFor } from "../domain/drugs";
-import { computeInfusion, formatNum, type DoseRateUnit, type MassUnit } from "../domain/calculations";
+import { computeInfusion, rateFromDose, formatNum, type DoseRateUnit, type MassUnit } from "../domain/calculations";
 import { useStore } from "../store/store";
 import type { CaseState, InfusionRecord } from "../domain/events";
 import { nowLocalInput, isoFromLocalInput, durationBetween } from "../utils/time";
@@ -17,6 +17,8 @@ interface Props {
 
 type Mode = "bolus" | "infusion" | "plantillas" | "pediatrica";
 const DOSE_UNITS: DoseRateUnit[] = ["mcg/kg/min", "mcg/kg/h", "mg/kg/h", "mg/kg/min"];
+// Formatos seleccionables para el ritmo de perfusión (incluye TCI plasmática/efecto).
+const RATE_UNITS = ["ml/h", "mcg/kg/min", "mcg/kg/h", "mg/kg/h", "mg/kg/min", "TCI plasmática", "TCI efecto"];
 const FLUID_VOLUME = 500;
 
 export function DrugModal({ cs, onClose, onDone }: Props) {
@@ -37,6 +39,8 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
   const [diluent, setDiluent] = useState("");
   const [rate, setRate] = useState("");
   const [doseUnit, setDoseUnit] = useState<DoseRateUnit>("mcg/kg/min");
+  const [rateUnit, setRateUnit] = useState<string>("ml/h"); // unidad seleccionada del ritmo
+  const [tciUnit, setTciUnit] = useState("µg/ml"); // unidad del objetivo TCI
   const [weight, setWeight] = useState(cs.preop.weightKg ? String(cs.preop.weightKg) : "");
 
   // Gas / cambio de ritmo
@@ -48,6 +52,9 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
   const isFluid = !!def?.fluid;
   const isConcVol = !!def?.concVol;
   const isPropofol = drug.trim().toLowerCase() === "propofol";
+  const isTci = rateUnit.startsWith("TCI");
+  const isMlh = rateUnit === "ml/h";
+  const tciMode: "plasma" | "efecto" | undefined = rateUnit === "TCI plasmática" ? "plasma" : rateUnit === "TCI efecto" ? "efecto" : undefined;
 
   const activeInf: InfusionRecord | undefined = useMemo(
     () => cs.infusions.find((i) => i.active && i.drug.trim().toLowerCase() === drug.trim().toLowerCase()),
@@ -113,16 +120,21 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
   }
 
   const calc = useMemo(() => {
+    if (isTci) return null; // en TCI no hay cálculo ml/h; se registra el objetivo
     const a = parseFloat(amount.replace(",", "."));
     const v = parseFloat(diluent.replace(",", "."));
-    const r = parseFloat(rate.replace(",", "."));
+    const val = parseFloat(rate.replace(",", "."));
     const w = parseFloat(weight.replace(",", "."));
     if (!a || !v || !w) return null;
-    return computeInfusion({ amount: a, amountUnit, diluentVolumeMl: v, rateMlH: isFinite(r) ? r : 0, weightKg: w, doseUnit });
-  }, [amount, diluent, rate, weight, amountUnit, doseUnit]);
+    // ml/h: el valor introducido es el ritmo. Unidad ponderada: el valor es la dosis y se
+    // calcula el ritmo (ml/h) necesario mediante el cálculo inverso.
+    const mlh = isMlh ? (isFinite(val) ? val : 0) : rateFromDose(isFinite(val) ? val : 0, rateUnit as DoseRateUnit, a, amountUnit, v, w);
+    const res = computeInfusion({ amount: a, amountUnit, diluentVolumeMl: v, rateMlH: mlh, weightKg: w, doseUnit: isMlh ? doseUnit : (rateUnit as DoseRateUnit) });
+    return { ...res, effRateMlH: mlh };
+  }, [amount, diluent, rate, weight, amountUnit, doseUnit, rateUnit, isMlh, isTci]);
 
   const propofolMgKgH = useMemo(() => {
-    if (!isPropofol) return null;
+    if (!isPropofol || !isMlh) return null;
     const a = parseFloat(amount.replace(",", "."));
     const v = parseFloat(diluent.replace(",", "."));
     const r = parseFloat(rate.replace(",", "."));
@@ -190,13 +202,32 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
   function saveNewInfusion() {
     if (isGas) return saveNewGas();
     if (isFluid) return saveNewFluid();
-    if (!drug || !calc) return;
-    const w = parseFloat(weight.replace(",", "."));
-    if (w && w !== cs.preop.weightKg) append(cs.caseId, "WEIGHT_UPDATED", { weightKg: w });
     const at = isoFromLocalInput(time);
+    const w = parseFloat(weight.replace(",", "."));
+    if (isTci) {
+      const target = parseFloat(rate.replace(",", "."));
+      if (!drug || !isFinite(target) || target <= 0) return;
+      const modeLabel = tciMode === "plasma" ? "Cp" : "Ce";
+      append(
+        cs.caseId,
+        "INFUSION_STARTED",
+        {
+          id: rid(), drug, tci: tciMode, tciUnit,
+          amount: 0, amountUnit, diluentVolumeMl: 0, concentration: 0, concentrationUnit: tciUnit,
+          rateMlH: target, weightBasedDose: target, doseUnit: `${tciUnit} (${modeLabel})`,
+          summary: `${modeLabel} ${formatNum(target)} ${tciUnit}`, startedAt: at, active: true,
+        },
+        at,
+      );
+      onDone(`Perfusión TCI ${drug} iniciada`);
+      onClose();
+      return;
+    }
+    if (!drug || !calc) return;
+    if (w && w !== cs.preop.weightKg) append(cs.caseId, "WEIGHT_UPDATED", { weightKg: w });
     let summary = calc.summary;
     if (isPropofol && propofolMgKgH && !calc.doseUnit.startsWith("mg/kg/h")) summary = `${calc.summary} · ${formatNum(propofolMgKgH.weightBasedDose)} mg/kg/h`;
-    append(cs.caseId, "INFUSION_STARTED", { id: rid(), drug, amount: parseFloat(amount.replace(",", ".")), amountUnit, diluentVolumeMl: parseFloat(diluent.replace(",", ".")), concentration: calc.concentration, concentrationUnit: calc.concentrationUnit, rateMlH: parseFloat(rate.replace(",", ".")) || 0, weightBasedDose: calc.weightBasedDose, doseUnit: calc.doseUnit, summary, startedAt: at, active: true }, at);
+    append(cs.caseId, "INFUSION_STARTED", { id: rid(), drug, amount: parseFloat(amount.replace(",", ".")), amountUnit, diluentVolumeMl: parseFloat(diluent.replace(",", ".")), concentration: calc.concentration, concentrationUnit: calc.concentrationUnit, rateMlH: calc.effRateMlH, weightBasedDose: calc.weightBasedDose, doseUnit: calc.doseUnit, summary, startedAt: at, active: true }, at);
     onDone(`Perfusión ${drug} iniciada`);
     onClose();
   }
@@ -223,6 +254,17 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
       const stop = pct === 0;
       append(cs.caseId, "INFUSION_RATE_CHANGED", { id: activeInf.id, drug: activeInf.drug, gas: true, gasPercent: pct, rateMlH: 0, weightBasedDose: 0, doseUnit: "% esp", summary: stop ? "Fin" : `${formatNum(pct)} % (espirado)` }, at);
       onDone(stop ? "Fin de sevoflurano" : `Sevoflurano ${formatNum(pct)}%`);
+      onClose();
+      return;
+    }
+    if (activeInf.tci) {
+      const target = parseFloat(newRate.replace(",", "."));
+      if (isNaN(target)) return;
+      const stop = target === 0;
+      const modeLabel = activeInf.tci === "plasma" ? "Cp" : "Ce";
+      const unit = activeInf.tciUnit ?? "µg/ml";
+      append(cs.caseId, "INFUSION_RATE_CHANGED", { id: activeInf.id, drug: activeInf.drug, tci: activeInf.tci, rateMlH: target, weightBasedDose: target, doseUnit: `${unit} (${modeLabel})`, summary: stop ? "Fin" : `${modeLabel} ${formatNum(target)} ${unit}` }, at);
+      onDone(stop ? `Fin de perfusión: ${activeInf.drug}` : `TCI actualizada: ${activeInf.drug}`);
       onClose();
       return;
     }
@@ -423,6 +465,18 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
                     {gasPercent === "0" ? "Finalizar" : "Actualizar %"}
                   </button>
                 </>
+              ) : activeInf!.tci ? (
+                <>
+                  <div className="field">
+                    <label>
+                      Nuevo objetivo {activeInf!.tci === "plasma" ? "plasmático (Cp)" : "de efecto (Ce)"} en {activeInf!.tciUnit ?? "µg/ml"} — 0 para finalizar
+                    </label>
+                    <input inputMode="decimal" type="text" value={newRate} onChange={(e) => setNewRate(e.target.value)} placeholder="Ej. 3 · 0 = fin" autoFocus />
+                  </div>
+                  <button className={`btn block lg ${newRate === "0" ? "danger" : "primary"}`} onClick={saveRateChange} disabled={newRate === ""}>
+                    {newRate === "0" ? "Finalizar perfusión" : "Actualizar objetivo TCI"}
+                  </button>
+                </>
               ) : (
                 <>
                   <div className="field">
@@ -461,80 +515,117 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
             </>
           ) : (
             <>
-              {dils.length > 0 && (
-                <div className="field">
-                  <label>Dilución estándar (editable)</label>
-                  <div className="chips">
-                    {dils.map((d) => (
-                      <button
-                        key={d.label}
-                        className="chip"
-                        onClick={() => {
-                          setAmount(String(d.amount));
-                          setAmountUnit(d.amountUnit);
-                          setDiluent(String(d.diluentMl));
-                        }}
-                      >
-                        {d.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              <div className="row">
-                <div className="field">
-                  <label>Principio activo</label>
-                  <input inputMode="decimal" type="text" value={amount} onChange={(e) => setAmount(e.target.value)} />
-                </div>
-                <div className="field">
-                  <label>Unidad</label>
-                  <select value={amountUnit} onChange={(e) => setAmountUnit(e.target.value as MassUnit)}>
-                    <option value="mg">mg</option>
-                    <option value="mcg">mcg</option>
-                  </select>
-                </div>
-              </div>
               <div className="field">
-                <label>Volumen del disolvente (ml)</label>
-                <input inputMode="decimal" type="text" value={diluent} onChange={(e) => setDiluent(e.target.value)} />
-              </div>
-              {calc && (
-                <div className="calc-box">
-                  <div className="muted" style={{ fontSize: 13 }}>Concentración final</div>
-                  <div className="big">{formatNum(calc.concentration)} {calc.concentrationUnit}</div>
-                </div>
-              )}
-              <div className="row">
-                <div className="field">
-                  <label>Ritmo (ml/h)</label>
-                  <input inputMode="decimal" type="text" value={rate} onChange={(e) => setRate(e.target.value)} />
-                </div>
-                <div className="field">
-                  <label>Peso (kg)</label>
-                  <input inputMode="decimal" type="text" value={weight} onChange={(e) => setWeight(e.target.value)} />
-                </div>
-              </div>
-              <div className="field">
-                <label>Expresar dosis en</label>
-                <select value={doseUnit} onChange={(e) => setDoseUnit(e.target.value as DoseRateUnit)}>
-                  {DOSE_UNITS.map((u) => (
+                <label>Unidad del ritmo</label>
+                <select value={rateUnit} onChange={(e) => setRateUnit(e.target.value)}>
+                  {RATE_UNITS.map((u) => (
                     <option key={u}>{u}</option>
                   ))}
                 </select>
               </div>
-              {calc && rate && (
-                <div className="calc-box">
-                  <div className="muted" style={{ fontSize: 13 }}>Se conservan ambos datos</div>
-                  <div className="big">{calc.summary}</div>
-                  {isPropofol && propofolMgKgH && !doseUnit.startsWith("mg/kg/h") && (
-                    <div className="big" style={{ fontSize: 18 }}>{formatNum(propofolMgKgH.weightBasedDose)} mg/kg/h</div>
+
+              {isTci ? (
+                <>
+                  <div className="alert">
+                    Modo TCI ({tciMode === "plasma" ? "objetivo plasmático, Cp" : "objetivo de efecto, Ce"}): registra la concentración objetivo; la bomba de TCI gestiona el ritmo.
+                  </div>
+                  <div className="row">
+                    <div className="field">
+                      <label>Concentración objetivo</label>
+                      <input inputMode="decimal" type="text" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="Ej. 3" autoFocus />
+                    </div>
+                    <div className="field">
+                      <label>Unidad</label>
+                      <select value={tciUnit} onChange={(e) => setTciUnit(e.target.value)}>
+                        <option>µg/ml</option>
+                        <option>ng/ml</option>
+                      </select>
+                    </div>
+                  </div>
+                  <button className="btn primary block lg" onClick={saveNewInfusion} disabled={!drug || !rate}>
+                    Iniciar TCI
+                  </button>
+                </>
+              ) : (
+                <>
+                  {dils.length > 0 && (
+                    <div className="field">
+                      <label>Dilución estándar (editable)</label>
+                      <div className="chips">
+                        {dils.map((d) => (
+                          <button
+                            key={d.label}
+                            className="chip"
+                            onClick={() => {
+                              setAmount(String(d.amount));
+                              setAmountUnit(d.amountUnit);
+                              setDiluent(String(d.diluentMl));
+                            }}
+                          >
+                            {d.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   )}
-                </div>
+                  <div className="row">
+                    <div className="field">
+                      <label>Principio activo</label>
+                      <input inputMode="decimal" type="text" value={amount} onChange={(e) => setAmount(e.target.value)} />
+                    </div>
+                    <div className="field">
+                      <label>Unidad</label>
+                      <select value={amountUnit} onChange={(e) => setAmountUnit(e.target.value as MassUnit)}>
+                        <option value="mg">mg</option>
+                        <option value="mcg">mcg</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="field">
+                    <label>Volumen del disolvente (ml)</label>
+                    <input inputMode="decimal" type="text" value={diluent} onChange={(e) => setDiluent(e.target.value)} />
+                  </div>
+                  {calc && (
+                    <div className="calc-box">
+                      <div className="muted" style={{ fontSize: 13 }}>Concentración final</div>
+                      <div className="big">{formatNum(calc.concentration)} {calc.concentrationUnit}</div>
+                    </div>
+                  )}
+                  <div className="row">
+                    <div className="field">
+                      <label>{isMlh ? "Ritmo (ml/h)" : `Dosis (${rateUnit})`}</label>
+                      <input inputMode="decimal" type="text" value={rate} onChange={(e) => setRate(e.target.value)} />
+                    </div>
+                    <div className="field">
+                      <label>Peso (kg)</label>
+                      <input inputMode="decimal" type="text" value={weight} onChange={(e) => setWeight(e.target.value)} />
+                    </div>
+                  </div>
+                  {isMlh && (
+                    <div className="field">
+                      <label>Expresar dosis en</label>
+                      <select value={doseUnit} onChange={(e) => setDoseUnit(e.target.value as DoseRateUnit)}>
+                        {DOSE_UNITS.map((u) => (
+                          <option key={u}>{u}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  {calc && rate && (
+                    <div className="calc-box">
+                      <div className="muted" style={{ fontSize: 13 }}>Se conservan ambos datos (ml/h y dosis ponderada)</div>
+                      <div className="big">{calc.summary}</div>
+                      {isPropofol && propofolMgKgH && !doseUnit.startsWith("mg/kg/h") && (
+                        <div className="big" style={{ fontSize: 18 }}>{formatNum(propofolMgKgH.weightBasedDose)} mg/kg/h</div>
+                      )}
+                    </div>
+                  )}
+                  {!weight && <div className="alert danger">Introduce el peso para calcular la dosis ponderada.</div>}
+                  <button className="btn primary block lg" onClick={saveNewInfusion} disabled={!drug || !calc}>
+                    Iniciar perfusión
+                  </button>
+                </>
               )}
-              {!weight && <div className="alert danger">Introduce el peso para calcular la dosis ponderada.</div>}
-              <button className="btn primary block lg" onClick={saveNewInfusion} disabled={!drug || !calc}>
-                Iniciar perfusión
-              </button>
             </>
           )}
         </>
