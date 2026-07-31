@@ -726,6 +726,19 @@ textarea {
 /* Checklist de seguridad y OMS: títulos y contenido reducidos */
 .sheet .sheet-h2-mini { font-size: 10px; letter-spacing: .5px; margin: 10px 0 3px; padding-bottom: 2px; }
 .sheet .sheet-mini { font-size: 9.5px; color: #333; }
+
+/* ---------- Imagen simplificada para SAP (solo gráfica + técnicas + constantes) ---------- */
+/* Letra y símbolos grandes para que sea legible al embeberla reducida en el informe. */
+.sheet-img { background: #fff; color: #111; width: 1060px; padding: 18px 22px; box-sizing: border-box; }
+.sheet-img h2 { font-size: 22px; text-transform: uppercase; letter-spacing: 1px; color: #0e7c7b; border-bottom: 2px solid #0e7c7b; padding-bottom: 5px; margin: 16px 0 10px; }
+.sheet-img h2:first-of-type { margin-top: 4px; }
+.sheet-img .img-code { font-size: 16px; font-weight: 800; color: #0e7c7b; text-align: right; }
+.sheet-img table { width: 100%; border-collapse: collapse; }
+.sheet-img th, .sheet-img td { text-align: left; padding: 6px 9px; border-bottom: 1px solid #d8d8d8; vertical-align: top; }
+.sheet-img th { color: #333; font-weight: 700; }
+.sheet-img .tech-label { font-size: 21px; font-weight: 800; color: #111; }
+.sheet-img .tech-detail { font-size: 17px; color: #222; }
+.sheet-img .const-img th, .sheet-img .const-img td { font-size: 17px; padding: 5px 8px; font-variant-numeric: tabular-nums; }
 .sheet tr { break-inside: avoid; }
 
 /* Botón flotante para marcar fin de perfusión */

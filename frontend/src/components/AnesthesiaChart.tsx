@@ -6,6 +6,8 @@ import { formatNum } from "../domain/calculations";
 interface Props {
   cs: CaseState;
   light?: boolean;
+  big?: boolean; // imagen embebida: textos y símbolos más grandes y legibles
+  hideLegend?: boolean; // oculta la leyenda (imagen simplificada)
   onTimeClick?: (iso: string) => void;
 }
 
@@ -55,19 +57,26 @@ function col(code: string, light?: boolean): string {
 }
 
 const W = 1000;
-const padL = 116; // columna de nombres de fármaco + etiquetas de valor
 const padR = 16;
-const topBand = 52; // espacio para etiquetas de evento inclinadas
-const hemoTop = topBand;
-const hemoH = 200;
-const hemoBottom = hemoTop + hemoH;
-const lanesTop = hemoBottom + 26;
-const laneH = 32;
 
-export function AnesthesiaChart({ cs, light, onTimeClick }: Props) {
+export function AnesthesiaChart({ cs, light, big, hideLegend, onTimeClick }: Props) {
   const gridColor = light ? "#e2e2e2" : "#2a3742";
   const axisText = light ? "#555" : "#9fb0bf";
   const strong = light ? "#222" : "#e8eef4";
+
+  // Escalas para el modo "big": textos, símbolos y trazos mayores + más espacio,
+  // pensados para que la imagen siga siendo legible embebida y reducida en SAP.
+  const fs = (n: number) => (big ? Math.round(n * 1.55 * 10) / 10 : n);
+  const ss = big ? 1.5 : 1; // factor de símbolos
+  const sw = big ? 1.5 : 1; // factor de trazos
+  const padL = big ? 156 : 116;
+  const topBand = big ? 64 : 52;
+  const hemoH = big ? 244 : 200;
+  const laneH = big ? 46 : 32;
+  const hemoTop = topBand;
+  const hemoBottom = hemoTop + hemoH;
+  const lanesTop = hemoBottom + (big ? 34 : 26);
+  const maxName = big ? 13 : 17;
 
   const model = useMemo(() => {
     const allVitals = cs.vitals.slice().sort((a, b) => a.at.localeCompare(b.at));
@@ -107,7 +116,7 @@ export function AnesthesiaChart({ cs, light, onTimeClick }: Props) {
   }, [cs]);
 
   const lanesBottom = lanesTop + model.drugs.length * laneH;
-  const totalH = lanesBottom + 28;
+  const totalH = lanesBottom + (big ? 40 : 28);
   const X = (iso: string) => padL + ((new Date(iso).getTime() - model.t0) / model.span) * (W - padL - padR);
   const Xn = (t: number) => padL + ((t - model.t0) / model.span) * (W - padL - padR);
   const Y = (v: number) => hemoBottom - (v / model.yMax) * hemoH;
@@ -128,9 +137,7 @@ export function AnesthesiaChart({ cs, light, onTimeClick }: Props) {
     .filter((ev) => model.inRange(ev.at))
     .sort((a, b) => a.at.localeCompare(b.at));
   // Leyenda de hitos: código -> etiqueta (solo hitos, sin duplicados).
-  const milestoneLegend = Array.from(
-    new Map(cs.milestones.map((m) => [milestoneCode(m.label), m.label])).entries(),
-  );
+  const milestoneLegend = Array.from(new Map(cs.milestones.map((m) => [milestoneCode(m.label), m.label])).entries());
   const tamPts = model.vitals.filter((v) => typeof v.values.TAM === "number").map((v) => `${X(v.at)},${Y(v.values.TAM)}`);
 
   function handleClick(e: MouseEvent<SVGSVGElement>) {
@@ -153,7 +160,9 @@ export function AnesthesiaChart({ cs, light, onTimeClick }: Props) {
         {hlines.map((g) => (
           <g key={"h" + g}>
             <line x1={padL} y1={Y(g)} x2={W - padR} y2={Y(g)} stroke={gridColor} strokeWidth={0.6} />
-            <text x={padL - 6} y={Y(g) + 4} fontSize={11} fill={axisText} textAnchor="end">{g}</text>
+            <text x={padL - 6} y={Y(g) + 4} fontSize={fs(11)} fill={axisText} textAnchor="end">
+              {g}
+            </text>
           </g>
         ))}
         <line x1={padL} y1={Y(65)} x2={W - padR} y2={Y(65)} stroke="#ef4444" strokeWidth={0.6} strokeDasharray="4 3" opacity={0.55} />
@@ -163,18 +172,18 @@ export function AnesthesiaChart({ cs, light, onTimeClick }: Props) {
           <line key={"v" + i} x1={Xn(t)} y1={hemoTop} x2={Xn(t)} y2={lanesBottom} stroke={gridColor} strokeWidth={0.6} />
         ))}
 
-        {/* Eventos: línea vertical + etiqueta inclinada arriba */}
+        {/* Eventos: línea vertical + código arriba */}
         {events.map((ev, i) => (
           <g key={"ev" + i}>
-            <line x1={X(ev.at)} y1={hemoTop} x2={X(ev.at)} y2={lanesBottom} stroke={ev.color} strokeWidth={1} strokeDasharray="3 2" opacity={0.85} />
-            <text x={X(ev.at)} y={hemoTop - 6} fontSize={13} fontWeight={700} fill={ev.color} textAnchor="middle">
+            <line x1={X(ev.at)} y1={hemoTop} x2={X(ev.at)} y2={lanesBottom} stroke={ev.color} strokeWidth={1 * sw} strokeDasharray="3 2" opacity={0.85} />
+            <text x={X(ev.at)} y={hemoTop - (big ? 9 : 6)} fontSize={fs(13)} fontWeight={700} fill={ev.color} textAnchor="middle">
               {ev.code}
             </text>
           </g>
         ))}
 
         {/* Tendencia TAM */}
-        {tamPts.length > 1 && <polyline points={tamPts.join(" ")} fill="none" stroke={col("TAM", light)} strokeWidth={1.8} opacity={0.9} />}
+        {tamPts.length > 1 && <polyline points={tamPts.join(" ")} fill="none" stroke={col("TAM", light)} strokeWidth={1.8 * sw} opacity={0.9} />}
 
         {/* Constantes hemodinámicas */}
         {model.vitals.map((v, i) => {
@@ -182,21 +191,23 @@ export function AnesthesiaChart({ cs, light, onTimeClick }: Props) {
           const els: ReactNode[] = [];
           const tas = v.values.TAS;
           const tad = v.values.TAD;
+          const cap = 3.5 * ss;
           if (typeof tas === "number" && typeof tad === "number") {
-            els.push(<line key="ta" x1={x} y1={Y(tad)} x2={x} y2={Y(tas)} stroke={col("TAS", light)} strokeWidth={1.6} />);
-            els.push(<line key="c1" x1={x - 3.5} y1={Y(tas)} x2={x + 3.5} y2={Y(tas)} stroke={col("TAS", light)} strokeWidth={1.6} />);
-            els.push(<line key="c2" x1={x - 3.5} y1={Y(tad)} x2={x + 3.5} y2={Y(tad)} stroke={col("TAD", light)} strokeWidth={1.6} />);
+            els.push(<line key="ta" x1={x} y1={Y(tad)} x2={x} y2={Y(tas)} stroke={col("TAS", light)} strokeWidth={1.6 * sw} />);
+            els.push(<line key="c1" x1={x - cap} y1={Y(tas)} x2={x + cap} y2={Y(tas)} stroke={col("TAS", light)} strokeWidth={1.6 * sw} />);
+            els.push(<line key="c2" x1={x - cap} y1={Y(tad)} x2={x + cap} y2={Y(tad)} stroke={col("TAD", light)} strokeWidth={1.6 * sw} />);
           }
-          if (typeof v.values.TAM === "number") els.push(<circle key="tam" cx={x} cy={Y(v.values.TAM)} r={2.7} fill={col("TAM", light)} />);
+          if (typeof v.values.TAM === "number") els.push(<circle key="tam" cx={x} cy={Y(v.values.TAM)} r={2.7 * ss} fill={col("TAM", light)} />);
           if (typeof v.values.FC === "number") {
             const y = Y(v.values.FC);
-            els.push(<path key="fc" d={`M${x} ${y - 3.6}L${x + 3.6} ${y}L${x} ${y + 3.6}L${x - 3.6} ${y}Z`} fill={col("FC", light)} />);
+            const d = 3.6 * ss;
+            els.push(<path key="fc" d={`M${x} ${y - d}L${x + d} ${y}L${x} ${y + d}L${x - d} ${y}Z`} fill={col("FC", light)} />);
           }
           return <g key={i}>{els}</g>;
         })}
 
         {/* Separador de fármacos */}
-        <line x1={padL} y1={lanesTop - 10} x2={W - padR} y2={lanesTop - 10} stroke={gridColor} strokeWidth={1} />
+        <line x1={padL} y1={lanesTop - 10} x2={W - padR} y2={lanesTop - 10} stroke={gridColor} strokeWidth={1 * sw} />
 
         {/* Carriles de fármacos */}
         {model.drugs.map((drug, idx) => {
@@ -204,10 +215,11 @@ export function AnesthesiaChart({ cs, light, onTimeClick }: Props) {
           const y = lanesTop + idx * laneH + laneH / 2;
           const boluses = cs.boluses.filter((b) => b.drug === drug && model.inRange(b.at));
           const infusions = cs.infusions.filter((i) => i.drug === drug);
+          const half = 4 * ss;
           return (
             <g key={drug}>
-              <text x={4} y={y + 4} fontSize={12.5} fill={strong} fontWeight={700}>
-                {drug.length > 17 ? drug.slice(0, 16) + "…" : drug}
+              <text x={4} y={y + 4} fontSize={fs(12.5)} fill={strong} fontWeight={700}>
+                {drug.length > maxName ? drug.slice(0, maxName - 1) + "…" : drug}
               </text>
               {infusions.map((inf) => {
                 const x1 = clampX(X(inf.startedAt));
@@ -215,9 +227,9 @@ export function AnesthesiaChart({ cs, light, onTimeClick }: Props) {
                 const changes = (inf.changes ?? []).filter((c) => !c.stop);
                 return (
                   <g key={inf.id}>
-                    <rect x={x1} y={y - 4} width={Math.max(1.5, x2 - x1)} height={8} rx={3} fill={color} opacity={0.6} />
+                    <rect x={x1} y={y - half} width={Math.max(1.5, x2 - x1)} height={half * 2} rx={3} fill={color} opacity={0.6} />
                     {changes.map((c, ci) => (
-                      <text key={ci} x={clampX(X(c.at))} y={y - 9} fontSize={11.5} fontWeight={600} fill={color} textAnchor="middle">
+                      <text key={ci} x={clampX(X(c.at))} y={y - (big ? 13 : 9)} fontSize={fs(11.5)} fontWeight={600} fill={color} textAnchor="middle">
                         {inf.gas ? `${formatNum(c.gasPercent ?? 0)}%` : inf.fluid ? `${inf.volumeMl ?? 500}ml` : `${formatNum(c.rateMlH)}`}
                       </text>
                     ))}
@@ -226,11 +238,11 @@ export function AnesthesiaChart({ cs, light, onTimeClick }: Props) {
               })}
               {boluses.map((b, bi) => {
                 const x = clampX(X(b.at));
-                const ly = bi % 2 === 0 ? y - 9 : y - 18; // escalonado para no solapar
+                const ly = bi % 2 === 0 ? y - (big ? 13 : 9) : y - (big ? 26 : 18); // escalonado para no solapar
                 return (
                   <g key={b.id}>
-                    <path d={`M${x} ${y - 4}L${x + 4} ${y}L${x} ${y + 4}L${x - 4} ${y}Z`} fill={color} />
-                    <text x={x} y={ly} fontSize={11.5} fontWeight={600} fill={color} textAnchor="middle">
+                    <path d={`M${x} ${y - half}L${x + half} ${y}L${x} ${y + half}L${x - half} ${y}Z`} fill={color} />
+                    <text x={x} y={ly} fontSize={fs(11.5)} fontWeight={600} fill={color} textAnchor="middle">
                       {b.concentration && b.volumeMl ? `${formatNum(b.volumeMl)}ml` : `${formatNum(b.dose)}`}
                     </text>
                   </g>
@@ -242,25 +254,27 @@ export function AnesthesiaChart({ cs, light, onTimeClick }: Props) {
 
         {/* Eje de tiempo */}
         {ticks.map((t, i) => (
-          <text key={"t" + i} x={Xn(t)} y={lanesBottom + 18} fontSize={11} fill={axisText} textAnchor="middle">
+          <text key={"t" + i} x={Xn(t)} y={lanesBottom + (big ? 26 : 18)} fontSize={fs(11)} fill={axisText} textAnchor="middle">
             {hhmm(new Date(t).toISOString())}
           </text>
         ))}
       </svg>
 
       {/* Leyenda en una sola línea: símbolos + abreviaturas de hitos (HTML, no se escala) */}
-      <div className="anes-legend anes-legend-1">
-        <span style={{ color: col("TAS", light) }}>▮ TA</span>
-        <span style={{ color: col("TAM", light) }}>● TAM</span>
-        <span style={{ color: col("FC", light) }}>◆ FC</span>
-        <span style={{ color: light ? "#0e7c7b" : "#2dd4bf" }}>┊ hitos</span>
-        <span style={{ color: "#ef4444" }}>┊ incid.</span>
-        {milestoneLegend.map(([code, label]) => (
-          <span key={code} style={{ color: light ? "#0e7c7b" : "#2dd4bf" }}>
-            <b>{code}</b>={label}
-          </span>
-        ))}
-      </div>
+      {!hideLegend && (
+        <div className="anes-legend anes-legend-1">
+          <span style={{ color: col("TAS", light) }}>▮ TA</span>
+          <span style={{ color: col("TAM", light) }}>● TAM</span>
+          <span style={{ color: col("FC", light) }}>◆ FC</span>
+          <span style={{ color: light ? "#0e7c7b" : "#2dd4bf" }}>┊ hitos</span>
+          <span style={{ color: "#ef4444" }}>┊ incid.</span>
+          {milestoneLegend.map(([code, label]) => (
+            <span key={code} style={{ color: light ? "#0e7c7b" : "#2dd4bf" }}>
+              <b>{code}</b>={label}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

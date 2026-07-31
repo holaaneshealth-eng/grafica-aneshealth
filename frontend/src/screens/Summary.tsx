@@ -19,6 +19,7 @@ interface Props {
 
 export function Summary({ cs, onToast, canSign, canReopen }: Props) {
   const sheetRef = useRef<HTMLDivElement>(null);
+  const imageSheetRef = useRef<HTMLDivElement>(null); // versión simplificada para la imagen
   const append = useStore((s) => s.append);
   const reopenCase = useStore((s) => s.reopenCase);
   const getTimeline = useStore((s) => s.getTimeline);
@@ -47,14 +48,14 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
   // El checklist de seguridad se resume como OK (el gating impide llegar aquí si no lo está).
   const safetyOk = [cs.safety.monitorChecked, cs.safety.ventilatorChecked, cs.safety.suctionReady, cs.safety.ambuReady].every((v) => v === true);
 
-  async function renderCanvas(): Promise<HTMLCanvasElement> {
-    return html2canvas(sheetRef.current!, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
+  async function renderCanvas(el: HTMLElement): Promise<HTMLCanvasElement> {
+    return html2canvas(el, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
   }
 
   async function exportPDF() {
     setBusy(true);
     try {
-      const canvas = await renderCanvas();
+      const canvas = await renderCanvas(sheetRef.current!);
       const pdf = new jsPDF("l", "mm", "a4"); // A4 horizontal
       const pw = pdf.internal.pageSize.getWidth();
       const ph = pdf.internal.pageSize.getHeight();
@@ -90,10 +91,10 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
     }
   }
 
-  // Genera la imagen de la hoja garantizando un tamaño <= 870 KB (PNG o, si no cabe, JPG).
+  // Genera la imagen SIMPLIFICADA (solo gráfica, técnicas y constantes) <= 870 KB.
   async function buildImageBlob(): Promise<{ blob: Blob; ext: string }> {
     const LIMIT = 870 * 1024;
-    const base = await renderCanvas();
+    const base = await renderCanvas(imageSheetRef.current!);
     const toBlob = (c: HTMLCanvasElement, type: string, q?: number) =>
       new Promise<Blob>((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error("blob"))), type, q));
     const scaleCanvas = (src: HTMLCanvasElement, f: number) => {
@@ -475,6 +476,72 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
         <div className="foot">
           <span>Documento pseudonimizado (RGPD). Identificado únicamente por IA.</span>
           <span>{cs.signedAt ? `Firmado: ${cs.signedBy} · ${dmy(cs.signedAt)} ${hhmm(cs.signedAt)}` : "Sin firmar"}</span>
+        </div>
+      </div>
+
+      {/* Imagen simplificada (fuera de pantalla) para adjuntar en el informe de SAP:
+          solo gráfica, técnicas y cronología de constantes, con letra y símbolos grandes. */}
+      <div aria-hidden="true" style={{ position: "fixed", left: "-10000px", top: 0 }}>
+        <div className="sheet-img" ref={imageSheetRef}>
+          <div className="img-code">
+            {cs.ia} · {dmy(cs.createdAt)}
+          </div>
+
+          <h2>Técnicas anestésicas</h2>
+          {cs.techniques.length === 0 ? (
+            <div className="tech-detail">Sin registrar</div>
+          ) : (
+            <table>
+              <tbody>
+                {cs.techniques.map((t) => (
+                  <tr key={t.id}>
+                    <td style={{ width: 66, whiteSpace: "nowrap" }}>{hhmm(t.at)}</td>
+                    <td>
+                      <div className="tech-label">{t.label}</div>
+                      <div className="tech-detail">
+                        {Object.entries(t.details)
+                          .filter(([, v]) => v !== "" && v != null)
+                          .map(([k, v]) => `${k}: ${String(v)}`)
+                          .join(" | ")}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          <h2>Gráfica anestésica</h2>
+          <AnesthesiaChart cs={cs} light big hideLegend />
+
+          {cs.vitals.length > 0 && paramsForTable.length > 0 && (
+            <>
+              <h2>Cronología de constantes</h2>
+              <table className="const-img">
+                <thead>
+                  <tr>
+                    <th>Hora</th>
+                    {paramsForTable.map((p) => (
+                      <th key={p.code}>{p.label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {cs.vitals
+                    .slice()
+                    .sort((a, b) => a.at.localeCompare(b.at))
+                    .map((v) => (
+                      <tr key={v.id}>
+                        <td>{hhmm(v.at)}</td>
+                        {paramsForTable.map((p) => (
+                          <td key={p.code}>{v.values[p.code] ?? "-"}</td>
+                        ))}
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </>
+          )}
         </div>
       </div>
     </div>
