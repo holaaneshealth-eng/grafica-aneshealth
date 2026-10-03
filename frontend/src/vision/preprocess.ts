@@ -1,13 +1,33 @@
 // Preprocesado de la foto del monitor (en el navegador, con canvas).
 // La pantalla del Mindray es oscura con texto claro: invertir mejora mucho el OCR.
 
+import { detectScreenQuad, warpImageData } from "./perspective";
+
 export interface PreprocessOptions {
   invert: boolean; // invertir colores (pantalla oscura -> texto negro sobre blanco)
   contrast: number; // 1 = sin cambio; 1.4 realza
   maxDim: number; // reescala el lado mayor a este máximo (px)
+  deskew: boolean; // corrección de perspectiva (endereza la pantalla antes del OCR)
 }
 
-export const DEFAULT_PREPROCESS: PreprocessOptions = { invert: true, contrast: 1.5, maxDim: 1600 };
+export const DEFAULT_PREPROCESS: PreprocessOptions = { invert: true, contrast: 1.5, maxDim: 1600, deskew: true };
+
+/** Detecta los bordes de la pantalla y endereza la imagen. Si no hay confianza, no toca nada. */
+export function tryDeskew(canvas: HTMLCanvasElement, maxDim: number): HTMLCanvasElement {
+  const ctx = canvas.getContext("2d")!;
+  const id = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const quad = detectScreenQuad({ data: id.data, width: canvas.width, height: canvas.height });
+  if (!quad) return canvas;
+  const warped = warpImageData({ data: id.data, width: canvas.width, height: canvas.height }, quad, maxDim);
+  const out = document.createElement("canvas");
+  out.width = warped.width;
+  out.height = warped.height;
+  const octx = out.getContext("2d")!;
+  const oid = octx.createImageData(warped.width, warped.height);
+  oid.data.set(warped.data as Uint8ClampedArray);
+  octx.putImageData(oid, 0, 0);
+  return out;
+}
 
 export function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((res, rej) => {
@@ -51,6 +71,7 @@ export function enhance(canvas: HTMLCanvasElement, opts: PreprocessOptions): HTM
 /** Pipeline completo: dataURL -> canvas preprocesado listo para OCR. */
 export async function preprocessDataUrl(dataUrl: string, opts: PreprocessOptions = DEFAULT_PREPROCESS): Promise<HTMLCanvasElement> {
   const img = await loadImage(dataUrl);
-  const canvas = toCanvas(img, opts.maxDim);
+  let canvas = toCanvas(img, opts.maxDim);
+  if (opts.deskew) canvas = tryDeskew(canvas, opts.maxDim);
   return enhance(canvas, opts);
 }
