@@ -47,6 +47,7 @@ export const APPENDABLE_EVENT_TYPES = [
   "SURGERY_ENDED",
   "CASE_REOPENED",
   "CASE_SIGNED",
+  "SHEET_EMAILED",
 ] as const;
 
 export const appendEventSchema = z.object({

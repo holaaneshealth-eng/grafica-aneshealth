@@ -25,7 +25,14 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
   const append = useStore((s) => s.append);
   const reopenCase = useStore((s) => s.reopenCase);
   const getTimeline = useStore((s) => s.getTimeline);
+  const getCaseEvents = useStore((s) => s.getCaseEvents);
   const timeline = getTimeline(cs.caseId);
+
+  // Nº de firmas del caso = versión de la hoja (1 la primera, 2 tras re-firmar, ...).
+  const signatureCount = getCaseEvents(cs.caseId).filter((e) => e.type === "CASE_SIGNED").length;
+  // ¿Hay un envío correcto para la versión firmada actual?
+  const sentOkForCurrent = cs.emailSends.some((e) => e.ok && e.version === signatureCount);
+  const emailPending = !!cs.signedAt && !sentOkForCurrent;
   const [busy, setBusy] = useState(false);
   const [mailMsg, setMailMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -54,15 +61,13 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
     return html2canvas(el, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
   }
 
-  async function exportPDF() {
-    setBusy(true);
+  // Construye el PDF completo (gráfica vectorial + resto de la hoja) y devuelve el documento.
+  async function buildPdfDoc(): Promise<jsPDF> {
     const chartBlock = chartBlockRef.current;
     try {
-      // A4 horizontal. Primero la GRÁFICA vectorial (nítida, escala fija, paginada).
       const pdf = new jsPDF("l", "mm", "a4");
       generateGraphicPages(pdf, cs, true);
 
-      // Resto del documento: se rasteriza la hoja ocultando la gráfica SVG (ya va en vectorial).
       if (chartBlock) chartBlock.style.display = "none";
       const canvas = await renderCanvas(sheetRef.current!);
       if (chartBlock) chartBlock.style.display = "";
@@ -93,10 +98,46 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
         pdf.text(`Página ${p + 1}/${pages} (datos)`, pw - 6, ph - 2.5, { align: "right" });
         pdf.text(cs.signedAt ? `Firmado: ${cs.signedBy}` : "Documento pseudonimizado (RGPD)", 6, ph - 2.5);
       }
-      pdf.save(`hoja-anestesica-${cs.ia}.pdf`);
-      onToast("PDF generado");
+      return pdf;
     } finally {
       if (chartBlock) chartBlock.style.display = "";
+    }
+  }
+
+  async function exportPDF() {
+    setBusy(true);
+    try {
+      const pdf = await buildPdfDoc();
+      pdf.save(`${cs.ia}.pdf`);
+      onToast("PDF generado");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Genera el PDF y lo envía al backend, que lo manda por correo (Resend). Registra el
+  // resultado como evento SHEET_EMAILED (persiste "pendiente de envío" tras recargar).
+  async function sendPdfByEmail(version: number, signedAtIso: string) {
+    setBusy(true);
+    setMailMsg(null);
+    try {
+      // Espera un instante a que la hoja refleje la firma recién añadida antes de rasterizar.
+      await new Promise((r) => setTimeout(r, 80));
+      const pdf = await buildPdfDoc();
+      const pdfBase64 = pdf.output("datauristring"); // data:application/pdf;base64,...
+      const r = await api.sendSheetPdf({ pdfBase64, ia: cs.ia, version, signedAt: signedAtIso });
+      append(cs.caseId, "SHEET_EMAILED", { at: new Date().toISOString(), to: r.to, subject: r.subject, version, ok: true });
+      setMailMsg({ ok: true, text: `PDF enviado a ${r.to} · asunto: "${r.subject}". Revisa la bandeja de entrada y el correo no deseado.` });
+      onToast(`PDF enviado a ${r.to}`);
+    } catch (err) {
+      const detail =
+        err instanceof ApiError ? `${err.message} (código ${err.status}${err.code ? " · " + err.code : ""})` : err instanceof Error ? err.message : "error desconocido";
+      // eslint-disable-next-line no-console
+      console.error("[email] fallo al enviar el PDF:", err);
+      append(cs.caseId, "SHEET_EMAILED", { at: new Date().toISOString(), to: "", subject: "", version, ok: false });
+      setMailMsg({ ok: false, text: `No se pudo enviar el PDF: ${detail}. La firma es válida; el caso queda pendiente de envío.` });
+      onToast("No se pudo enviar el correo");
+    } finally {
       setBusy(false);
     }
   }
@@ -155,43 +196,17 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
     }
   }
 
-  // Envía la imagen de la hoja al correo configurado (para archivarla p. ej. vía Power Automate).
-  // El resultado se muestra de forma persistente para poder diagnosticar cualquier fallo.
-  async function emailImage() {
-    setBusy(true);
-    setMailMsg(null);
-    try {
-      const { blob, ext } = await buildImageBlob();
-      const dataUrl: string = await new Promise((res, rej) => {
-        const fr = new FileReader();
-        fr.onerror = () => rej(new Error("no se pudo leer la imagen"));
-        fr.onload = () => res(String(fr.result));
-        fr.readAsDataURL(blob);
-      });
-      const kb = Math.round(blob.size / 1024);
-      const r = await api.sendSheetEmail({
-        imageBase64: dataUrl,
-        filename: `hoja-anestesica-${cs.ia}.${ext}`,
-        mimeType: blob.type,
-        ia: cs.ia,
-      });
-      setMailMsg({ ok: true, text: `Enviado a ${r.to} (${kb} KB) · asunto: "${r.subject}". Revisa la bandeja de entrada y el correo no deseado.` });
-      onToast(`Imagen enviada a ${r.to}`);
-    } catch (err) {
-      const detail = err instanceof ApiError ? `${err.message} (código ${err.status}${err.code ? " · " + err.code : ""})` : err instanceof Error ? err.message : "error desconocido";
-      // eslint-disable-next-line no-console
-      console.error("[email] fallo al enviar la hoja:", err);
-      setMailMsg({ ok: false, text: `No se pudo enviar: ${detail}` });
-      onToast("No se pudo enviar el correo");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function sign() {
+  // Firma la hoja y, acto seguido, envía el PDF por correo (sustituye al envío de imagen).
+  function signAndSend() {
+    const prior = getCaseEvents(cs.caseId).filter((e) => e.type === "CASE_SIGNED").length;
     const who = useStore.getState().user?.displayName ?? "";
     append(cs.caseId, "CASE_SIGNED", { signedBy: who });
     onToast("Hoja firmada por " + who);
+    void sendPdfByEmail(prior + 1, new Date().toISOString());
+  }
+
+  function retrySend() {
+    void sendPdfByEmail(signatureCount, cs.signedAt ?? new Date().toISOString());
   }
 
   function sendEmail() {
@@ -241,12 +256,9 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
           <button className="btn lg" onClick={sendEmail}>
             Email (texto)
           </button>
-          <button className="btn primary lg" onClick={emailImage} disabled={busy}>
-            {busy ? "Enviando..." : "Enviar imagen al correo"}
-          </button>
         </div>
         <p className="sub" style={{ marginTop: 8 }}>
-          "Enviar imagen al correo" adjunta la hoja (imagen) y la manda al buzón configurado; el asunto incluye "Hoja anestesica" para que tu automatización la archive en OneDrive.
+          Al firmar, el PDF se envía automáticamente al correo configurado (asunto "Hoja anestesica {cs.ia}") para su archivado.
         </p>
         {mailMsg && (
           <div className={`alert ${mailMsg.ok ? "" : "danger"}`} style={{ marginTop: 8 }}>
@@ -254,12 +266,27 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
           </div>
         )}
         {cs.signedAt ? (
-          <div className="alert" style={{ marginTop: 12 }}>
-            Firmada por {cs.signedBy} el {dmy(cs.signedAt)} a las {hhmm(cs.signedAt)}.
-          </div>
+          <>
+            <div className="alert" style={{ marginTop: 12 }}>
+              Firmada por {cs.signedBy} el {dmy(cs.signedAt)} a las {hhmm(cs.signedAt)}.
+              {signatureCount > 1 ? ` (versión ${signatureCount})` : ""}
+            </div>
+            {emailPending ? (
+              <div className="alert danger" style={{ marginTop: 8 }}>
+                <div>
+                  <strong>Pendiente de envío por correo.</strong> La firma es válida; el PDF no se ha enviado todavía.
+                </div>
+                <button className="btn primary block lg" style={{ marginTop: 8 }} onClick={retrySend} disabled={busy}>
+                  {busy ? "Enviando..." : "Reintentar envío"}
+                </button>
+              </div>
+            ) : (
+              <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>PDF enviado por correo ✓</div>
+            )}
+          </>
         ) : canSign ? (
-          <button className="btn primary block lg" style={{ marginTop: 12 }} onClick={sign}>
-            Firmar hoja (firma electrónica)
+          <button className="btn primary block lg" style={{ marginTop: 12 }} onClick={signAndSend} disabled={busy}>
+            {busy ? "Procesando..." : "Firmar y enviar PDF por correo"}
           </button>
         ) : (
           <div className="alert" style={{ marginTop: 12 }}>

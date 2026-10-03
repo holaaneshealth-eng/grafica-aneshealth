@@ -41,6 +41,7 @@ export type EventType =
   | "SURGERY_ENDED"
   | "CASE_REOPENED"
   | "CASE_SIGNED"
+  | "SHEET_EMAILED"
   | "EVENT_VOIDED";
 
 export interface BaseEvent {
@@ -133,6 +134,14 @@ export interface VentModeRecord {
   mode: string; // VC, PC, PRVC, SIMV, Presión soporte, Espontánea
 }
 
+export interface EmailSendRecord {
+  at: string;
+  to: string;
+  subject: string;
+  version: number; // versión de la firma enviada (1, 2, ...)
+  ok: boolean; // resultado del envío
+}
+
 export interface InfusionChange {
   at: string;
   rateMlH: number;
@@ -205,6 +214,7 @@ export interface CaseState {
   infusions: InfusionRecord[];
   vitals: VitalsRecord[];
   ventModes: VentModeRecord[];
+  emailSends: EmailSendRecord[];
   incidents: IncidentRecord[];
   milestones: MilestoneRecord[];
   bloodProducts: BloodProductRecord[];
@@ -232,6 +242,7 @@ export function emptyCaseState(caseId: string, ia: string, year: number, ordinal
     infusions: [],
     vitals: [],
     ventModes: [],
+    emailSends: [],
     incidents: [],
     milestones: [],
     bloodProducts: [],
