@@ -14,6 +14,8 @@ import type { VitalsRecord } from "../domain/events";
 import { hhmm, nowLocalInput, isoFromLocalInput, isoToLocalInput } from "../utils/time";
 import { formatNum } from "../domain/calculations";
 import { EXPOSURE_OPTIONS, insensibleLoss, WHO_PHASES } from "../domain/clinical";
+import { MILESTONE_QUICK } from "../pdf/config/milestones";
+import { VENT_MODES } from "../pdf/config/chartParams";
 
 interface Props {
   cs: CaseState;
@@ -23,15 +25,8 @@ interface Props {
 
 type Tab = "safety" | "monitor" | "technique" | "record" | "charts";
 
-// Hitos esenciales. Cualquier otro se añade como hito personalizable voluntario.
-const MILESTONES = [
-  "Entrada a quirófano",
-  "Inicio de anestesia",
-  "Inicio de cirugía",
-  "Fin de anestesia",
-  "Fin de cirugía",
-  "Salida de quirófano",
-];
+// Hitos esenciales (incluye PCR). Cualquier otro se añade como hito personalizable voluntario.
+const MILESTONES = MILESTONE_QUICK;
 
 export function Phase2({ cs, onToast, onAddVitalsAt }: Props) {
   const [tab, setTab] = useState<Tab>("safety");
@@ -500,8 +495,30 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
 
   const toast = (m: string) => onToast?.(m);
 
+  function setVentMode(mode: string) {
+    const at = new Date().toISOString();
+    append(cs.caseId, "VENT_MODE_SET", { id: "vm-" + Date.now(), at, mode }, at);
+    onToast?.(`Modo ventilatorio: ${mode}`);
+  }
+  const currentVentMode = cs.ventModes.length ? cs.ventModes[cs.ventModes.length - 1].mode : null;
+
   return (
     <div>
+      <div className="card">
+        <h2>Modo ventilatorio</h2>
+        <p className="sub">
+          Se registra con su hora. En la gráfica aparece como parámetro fijado (al inicio y en cada cambio).
+          {currentVentMode ? ` Actual: ${currentVentMode}.` : ""}
+        </p>
+        <div className="chips">
+          {VENT_MODES.map((m) => (
+            <button key={m} className={`chip ${currentVentMode === m ? "on" : ""}`} onClick={() => setVentMode(m)}>
+              {m}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="card">
         <h2>Hitos</h2>
         <p className="sub">Al pulsar un hito eliges la hora (por defecto la actual, modificable). Añade los que quieras como personalizados.</p>
@@ -754,7 +771,10 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
 
       <div className="card">
         <h2>Sangrado y diuresis</h2>
-        <p className="sub">Campos libres. Solo aparecerán en la hoja final si registras algún dato.</p>
+        <p className="sub">
+          Introduce la <strong>cantidad desde el último registro</strong> (no el acumulado): la hoja suma todos los registros para el total.
+          Solo aparecerán en la hoja final si registras algún dato.
+        </p>
         <div className="row">
           <div className="field">
             <label>Sangrado (ml)</label>

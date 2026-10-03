@@ -4,6 +4,7 @@ import html2canvas from "html2canvas";
 import type { CaseState } from "../domain/events";
 import { useStore } from "../store/store";
 import { AnesthesiaChart, CHARTED } from "../components/AnesthesiaChart";
+import { generateGraphicPages } from "../pdf";
 import { api, ApiError } from "../api";
 import { dmy, hhmm } from "../utils/time";
 import { STANDARD_PARAMS } from "../domain/monitoring";
@@ -19,6 +20,7 @@ interface Props {
 
 export function Summary({ cs, onToast, canSign, canReopen }: Props) {
   const sheetRef = useRef<HTMLDivElement>(null);
+  const chartBlockRef = useRef<HTMLDivElement>(null); // gráfica SVG en pantalla (se oculta al generar el PDF vectorial)
   const imageSheetRef = useRef<HTMLDivElement>(null); // versión simplificada para la imagen
   const append = useStore((s) => s.append);
   const reopenCase = useStore((s) => s.reopenCase);
@@ -54,9 +56,17 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
 
   async function exportPDF() {
     setBusy(true);
+    const chartBlock = chartBlockRef.current;
     try {
+      // A4 horizontal. Primero la GRÁFICA vectorial (nítida, escala fija, paginada).
+      const pdf = new jsPDF("l", "mm", "a4");
+      generateGraphicPages(pdf, cs, true);
+
+      // Resto del documento: se rasteriza la hoja ocultando la gráfica SVG (ya va en vectorial).
+      if (chartBlock) chartBlock.style.display = "none";
       const canvas = await renderCanvas(sheetRef.current!);
-      const pdf = new jsPDF("l", "mm", "a4"); // A4 horizontal
+      if (chartBlock) chartBlock.style.display = "";
+
       const pw = pdf.internal.pageSize.getWidth();
       const ph = pdf.internal.pageSize.getHeight();
       const headerH = 9;
@@ -66,7 +76,7 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
       const pageContentPx = contentH * pxPerMm;
       const pages = Math.max(1, Math.ceil(canvas.height / pageContentPx));
       for (let p = 0; p < pages; p++) {
-        if (p > 0) pdf.addPage();
+        pdf.addPage("a4", "landscape");
         const slicePx = Math.min(pageContentPx, canvas.height - p * pageContentPx);
         const tmp = document.createElement("canvas");
         tmp.width = canvas.width;
@@ -76,17 +86,17 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
         ctx.fillRect(0, 0, tmp.width, tmp.height);
         ctx.drawImage(canvas, 0, p * pageContentPx, canvas.width, slicePx, 0, 0, canvas.width, slicePx);
         pdf.addImage(tmp.toDataURL("image/png"), "PNG", 0, headerH, pw, slicePx / pxPerMm);
-        // Cabecera y pie repetidos en cada página
         pdf.setFontSize(8);
         pdf.setTextColor(90);
         pdf.text(`Hoja Anestésica · ${cs.ia}`, 6, 6);
         pdf.text(dmy(cs.createdAt), pw - 6, 6, { align: "right" });
-        pdf.text(`Página ${p + 1}/${pages}`, pw - 6, ph - 2.5, { align: "right" });
+        pdf.text(`Página ${p + 1}/${pages} (datos)`, pw - 6, ph - 2.5, { align: "right" });
         pdf.text(cs.signedAt ? `Firmado: ${cs.signedBy}` : "Documento pseudonimizado (RGPD)", 6, ph - 2.5);
       }
       pdf.save(`hoja-anestesica-${cs.ia}.pdf`);
       onToast("PDF generado");
     } finally {
+      if (chartBlock) chartBlock.style.display = "";
       setBusy(false);
     }
   }
@@ -337,9 +347,11 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
           </div>
         </div>
 
-        {/* Gráfica anestésica integrada (hemodinámica + fármacos + eventos) */}
-        <h2>Gráfica anestésica</h2>
-        <AnesthesiaChart cs={cs} light />
+        {/* Gráfica anestésica integrada (vista en pantalla; en el PDF va la versión vectorial) */}
+        <div ref={chartBlockRef}>
+          <h2>Gráfica anestésica</h2>
+          <AnesthesiaChart cs={cs} light />
+        </div>
 
         {/* Balance (solo si hay datos) */}
         {cs.balances.length > 0 && (

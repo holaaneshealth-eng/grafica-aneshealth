@@ -95,6 +95,22 @@ export const DRUGS: DrugDef[] = [
 
 export const DRUG_UNITS = ["mg", "mcg", "ml", "UI", "mEq", "g"];
 
+// Modelos farmacocinéticos de TCI por fármaco, unidad diana por defecto y unidad
+// por defecto del "total infundido según bomba" al finalizar.
+export interface TciInfo {
+  targetUnit: string; // unidad de la concentración diana
+  models: string[];
+  totalUnit: string; // unidad por defecto del total infundido
+}
+export const TCI_DRUGS: Record<string, TciInfo> = {
+  Propofol: { targetUnit: "µg/ml", models: ["Marsh", "Schnider", "Eleveld"], totalUnit: "mg" },
+  Remifentanilo: { targetUnit: "ng/ml", models: ["Minto", "Eleveld"], totalUnit: "µg" },
+  Dexmedetomidina: { targetUnit: "ng/ml", models: ["Dyck", "Hannivoort"], totalUnit: "µg" },
+};
+export function tciInfo(drug: string): TciInfo | undefined {
+  return TCI_DRUGS[(drug ?? "").trim()];
+}
+
 // Biblioteca de diluciones estándar por fármaco (modificables en cada caso).
 export interface Dilution {
   label: string;

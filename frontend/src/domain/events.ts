@@ -23,6 +23,7 @@ export type EventType =
   | "VITALS_UPDATED"
   | "VITALS_REMOVED"
   | "WEIGHT_UPDATED"
+  | "VENT_MODE_SET"
   | "MILESTONE"
   | "MILESTONE_TIME_CHANGED"
   | "MILESTONE_REMOVED"
@@ -62,6 +63,8 @@ export interface PreopInfo {
   antibiotic: string;
   antibioticTime: string | null; // ISO
   breastfeeding: boolean | null; // lactancia materna activa
+  asa: string | null; // clasificación ASA "I".."VI"
+  asaEmergency: boolean; // modificador "E" (urgencia)
 }
 
 // Checklist quirúrgico de la OMS: mapa item -> marcado.
@@ -118,7 +121,16 @@ export interface InfusionRecord {
   volumeMl?: number; // volumen cargado (sueros)
   tci?: "plasma" | "efecto"; // perfusión en modo TCI (objetivo plasmático/efecto); el objetivo se guarda en rateMlH
   tciUnit?: string; // unidad del objetivo TCI (p. ej. µg/ml o ng/ml)
+  tciModel?: string; // modelo farmacocinético (Marsh/Schnider/Eleveld/Minto/Dyck/Hannivoort)
+  totalInfused?: number; // total infundido según la bomba al finalizar (TCI)
+  totalInfusedUnit?: string; // unidad del total infundido (mg | µg | ml)
   changes?: InfusionChange[]; // historial de ritmos (incluye el inicial)
+}
+
+export interface VentModeRecord {
+  id: string;
+  at: string;
+  mode: string; // VC, PC, PRVC, SIMV, Presión soporte, Espontánea
 }
 
 export interface InfusionChange {
@@ -192,6 +204,7 @@ export interface CaseState {
   boluses: BolusRecord[];
   infusions: InfusionRecord[];
   vitals: VitalsRecord[];
+  ventModes: VentModeRecord[];
   incidents: IncidentRecord[];
   milestones: MilestoneRecord[];
   bloodProducts: BloodProductRecord[];
@@ -210,7 +223,7 @@ export function emptyCaseState(caseId: string, ia: string, year: number, ordinal
     ordinal,
     createdAt,
     phase: "PREOP",
-    preop: { allergies: "", heightCm: null, weightKg: null, history: "", medication: "", antibiotic: "", antibioticTime: null, breastfeeding: null },
+    preop: { allergies: "", heightCm: null, weightKg: null, history: "", medication: "", antibiotic: "", antibioticTime: null, breastfeeding: null, asa: null, asaEmergency: false },
     safety: { monitorChecked: null, ventilatorChecked: null, suctionReady: null, ambuReady: null },
     who: {},
     monitoring: { standard: [], custom: [] },
@@ -218,6 +231,7 @@ export function emptyCaseState(caseId: string, ia: string, year: number, ordinal
     boluses: [],
     infusions: [],
     vitals: [],
+    ventModes: [],
     incidents: [],
     milestones: [],
     bloodProducts: [],
