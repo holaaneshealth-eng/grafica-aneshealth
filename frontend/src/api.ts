@@ -126,7 +126,7 @@ export const api = {
   voidEvent: (id: string, targetEventId: string, reason: string) =>
     request<{ ok: true }>(`/cases/${id}/void`, "POST", { targetEventId, reason }),
   deleteCase: (id: string) => request<{ ok: true }>(`/cases/${id}`, "DELETE"),
-  sendSheetEmail: (payload: { imageBase64: string; filename: string; mimeType: string; ia?: string }) =>
+  sendSheetPdf: (payload: { pdfBase64: string; ia: string; version: number; signedAt?: string }) =>
     request<{ ok: true; to: string; subject: string }>("/mail/send", "POST", payload),
   visionStatus: () => request<{ claudeAvailable: boolean; model: string }>("/vision/status"),
   visionImport: (payload: { imageBase64: string; mimeType: string }) =>

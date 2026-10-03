@@ -9,16 +9,32 @@ export const mailRouter = Router();
 mailRouter.use(authGuard, csrfGuard, requirePasswordChanged);
 
 const bodySchema = z.object({
-  // base64 (con o sin prefijo data:); la imagen va limitada a <=870 KB => ~1,2 MB en base64.
-  imageBase64: z.string().min(16).max(2_000_000),
-  filename: z.string().min(1).max(160),
-  mimeType: z.string().max(60).default("image/png"),
-  ia: z.string().max(80).optional(),
-  subject: z.string().max(200).optional(), // compatibilidad; el asunto se fuerza en el servidor
+  // PDF en base64 (con o sin prefijo data:). PDF vectorial + páginas rasterizadas: límite amplio.
+  pdfBase64: z.string().min(16).max(12_000_000),
+  ia: z.string().min(1).max(80),
+  version: z.number().int().min(1).max(99).default(1),
+  signedAt: z.string().datetime().optional(),
 });
 
-// Envía la imagen de la hoja anestésica como adjunto por correo (para automatizar su
-// archivado, p. ej. una regla de Power Automate que guarda el adjunto en OneDrive).
+/** Formatea fecha y hora (es-ES, zona de Madrid) a partir de un ISO. */
+function fmtDateTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString("es-ES", {
+      timeZone: "Europe/Madrid",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+// Envía el PDF de la hoja anestésica como adjunto por correo al firmar.
+// El asunto se construye SIEMPRE en el servidor, SIN tilde ("Hoja anestesica"),
+// que es la palabra clave del disparador de Power Automate (archivado en OneDrive).
 mailRouter.post("/send", async (req, res, next) => {
   try {
     const parsed = bodySchema.safeParse(req.body);
@@ -34,12 +50,15 @@ mailRouter.post("/send", async (req, res, next) => {
       return;
     }
 
-    const { imageBase64, filename, ia } = parsed.data;
-    const content = imageBase64.includes(",") ? imageBase64.slice(imageBase64.indexOf(",") + 1) : imageBase64;
-    // El asunto se construye SIEMPRE en el servidor y contiene "Hoja anestesica" (sin tilde),
-    // que es la palabra clave del disparador de Power Automate. No depende del navegador.
-    const cleanIa = (ia ?? "").trim().replace(/[\r\n]/g, "");
-    const subj = `Hoja anestesica${cleanIa ? " " + cleanIa : ""}`;
+    const { pdfBase64, version, signedAt } = parsed.data;
+    const ia = parsed.data.ia.trim().replace(/[\r\n]/g, "");
+    const content = pdfBase64.includes(",") ? pdfBase64.slice(pdfBase64.indexOf(",") + 1) : pdfBase64;
+    const filename = `${ia}.pdf`;
+
+    // Asunto sin tilde + número; en reenvíos tras volver a firmar, "(version N)".
+    const subject = `Hoja anestesica ${ia}${version > 1 ? ` (version ${version})` : ""}`;
+    const when = fmtDateTime(signedAt ?? new Date().toISOString());
+    const text = `Hoja anestesica ${ia}. Firmada el ${when}. Documento pseudonimizado (RGPD), identificado unicamente por IA.`;
 
     const resp = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -49,10 +68,10 @@ mailRouter.post("/send", async (req, res, next) => {
       },
       body: JSON.stringify({
         from: config.mail.from,
-        to: [config.mail.to],
-        subject: subj,
-        text: `Adjunto la hoja anestésica (${filename}). Documento pseudonimizado (RGPD), identificado únicamente por IA.`,
-        attachments: [{ filename, content }],
+        to: config.mail.to.split(",").map((s) => s.trim()).filter(Boolean),
+        subject,
+        text,
+        attachments: [{ filename, content, contentType: "application/pdf" }],
       }),
     });
 
@@ -63,9 +82,9 @@ mailRouter.post("/send", async (req, res, next) => {
       audit({
         userId: req.user?.id,
         username: req.user?.username,
-        action: "MAIL_SEND_FAILED",
+        action: "SHEET_MAIL_FAILED",
         targetType: "mail",
-        targetId: config.mail.to,
+        targetId: `${config.mail.to} · ${subject}`,
         ip: req.ip,
         userAgent: req.get("user-agent"),
         success: false,
@@ -77,14 +96,14 @@ mailRouter.post("/send", async (req, res, next) => {
     audit({
       userId: req.user?.id,
       username: req.user?.username,
-      action: "MAIL_SENT",
+      action: "SHEET_MAIL_SENT",
       targetType: "mail",
-      targetId: config.mail.to,
+      targetId: `${config.mail.to} · ${subject}`,
       ip: req.ip,
       userAgent: req.get("user-agent"),
       success: true,
     });
-    res.json({ ok: true, to: config.mail.to, subject: subj });
+    res.json({ ok: true, to: config.mail.to, subject });
   } catch (err) {
     next(err);
   }

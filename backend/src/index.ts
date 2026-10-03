@@ -62,8 +62,8 @@ async function main(): Promise<void> {
   }
 
   app.use(compression());
-  // 2 MB: permite adjuntar la imagen de la hoja (<=870 KB) codificada en base64 (~1,2 MB).
-  app.use(express.json({ limit: "12mb" })); // margen para imágenes/PDF en base64
+  // 12 MB: margen para adjuntar el PDF/imagen de la hoja y la foto del monitor en base64.
+  app.use(express.json({ limit: "12mb" }));
   app.use(cookieParser());
   app.use(globalLimiter);
 

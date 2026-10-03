@@ -12,6 +12,7 @@ import {
   type LabRecord,
   type BalanceRecord,
   type VentModeRecord,
+  type EmailSendRecord,
   emptyCaseState,
 } from "../domain/events";
 
@@ -150,6 +151,8 @@ function applyEvent(state: CaseState, e: BaseEvent): CaseState {
       return { ...state, preop: { ...state.preop, weightKg: p.weightKg as number } };
     case "VENT_MODE_SET":
       return { ...state, ventModes: [...(state.ventModes ?? []), p as unknown as VentModeRecord] };
+    case "SHEET_EMAILED":
+      return { ...state, emailSends: [...(state.emailSends ?? []), p as unknown as EmailSendRecord] };
     case "VITALS_RECORDED":
       return { ...state, vitals: [...state.vitals, p as unknown as VitalsRecord] };
     case "VITALS_UPDATED":
