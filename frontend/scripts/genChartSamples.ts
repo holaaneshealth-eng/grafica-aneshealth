@@ -115,6 +115,28 @@ function makeCase(s: Scenario) {
   return projectCase(b.events)!;
 }
 
+/** Caso "antiguo": sin ASA, sin modo ventilatorio ni campos TCI nuevos. Verifica compatibilidad. */
+function makeLegacyCase() {
+  const b = new Builder("legacy");
+  const ent = new Date("2025-11-02T09:05:00").getTime();
+  const end = ent + 90 * MIN;
+  b.add("CASE_CREATED", { ia: "25-000123-7", year: 2025, ordinal: 123 }, ent - 10 * MIN);
+  // payload antiguo de preanestesia (sin asa/asaEmergency)
+  b.add("PREOP_INFO_RECORDED", { allergies: "No", heightCm: 165, weightKg: 68, history: "-", medication: "-" }, ent - 8 * MIN);
+  b.add("MONITORING_SELECTED", { standard: ["TAS", "TAD", "TAM", "FC", "SPO2"], custom: [] }, ent - 7 * MIN);
+  b.add("MILESTONE", { id: "lm1", at: new Date(ent).toISOString(), label: "Entrada a quirófano" }, ent);
+  b.add("MILESTONE", { id: "lm2", at: new Date(end).toISOString(), label: "Salida de quirófano" }, end);
+  for (let t = ent; t <= end; t += 5 * MIN) {
+    const k = (t - ent) / MIN;
+    b.add("VITALS_RECORDED", { id: `lv${k}`, at: new Date(t).toISOString(), source: "manual", values: { TAS: 120, TAD: 70, TAM: 87, FC: 70, SPO2: 98 } }, t);
+  }
+  b.add("DRUG_BOLUS", { id: "lb1", drug: "Propofol", dose: 150, unit: "mg", at: new Date(ent + 3 * MIN).toISOString() }, ent + 3 * MIN);
+  // perfusión antigua SIN concentración (concentration 0) -> total debe caer a "ml de solución"
+  b.add("INFUSION_STARTED", { id: "linf", drug: "Remifentanilo", rateMlH: 5, weightBasedDose: 0, doseUnit: "ml/h", amount: 0, amountUnit: "mg", diluentVolumeMl: 0, concentration: 0, concentrationUnit: "", summary: "5 ml/h", startedAt: new Date(ent + 5 * MIN).toISOString(), active: true }, ent + 5 * MIN);
+  b.add("SURGERY_ENDED", {}, end);
+  return projectCase(b.events)!;
+}
+
 function verify(diag: Diagnostics): string[] {
   const problems: string[] = [];
   if (diag.minFontPt < 7 - 1e-6) problems.push(`fuente < 7pt (${diag.minFontPt.toFixed(2)})`);
@@ -155,8 +177,31 @@ for (const s of scenarios) {
   console.log(
     `\n=== ${s.name} (${s.durationMin} min, ${s.drugs} fármacos) ===\n` +
       `  páginas: ${diag.pageCount}  minFont: ${diag.minFontPt.toFixed(2)}pt  llamadas: ${diag.footnotes}  bandSplits: ${diag.bandSplits}\n` +
+      `  ancho columna 5 min: ${diag.colWidthMm.toFixed(2)} mm  (col. etiquetas: ${diag.labelColWMm.toFixed(1)} mm)\n` +
       `  fármacos: ${model.drugRows.length}  medidas: ${model.measuredRows.length}  fijados: ${model.fixedRows.length}  líquidos: ${model.fluidInputs.length + model.fluidOutputs.length}\n` +
+      `  totales fármacos: ${model.drugRows.map((d) => d.total?.text).filter(Boolean).join(" | ")}\n` +
       `  ${problems.length === 0 ? "✓ OK" : "✗ " + problems.join("; ")}`,
   );
 }
+
+// Compatibilidad con caso antiguo
+try {
+  const cs = makeLegacyCase();
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  const model = buildChartModel(cs);
+  const diag = renderChart(doc, model, true);
+  writeFileSync("out/grafica-legacy.pdf", Buffer.from(doc.output("arraybuffer")));
+  const problems = verify(diag);
+  console.log(
+    `\n=== caso ANTIGUO (sin ASA/modo vent./TCI) ===\n` +
+      `  páginas: ${diag.pageCount}  minFont: ${diag.minFontPt.toFixed(2)}pt  ASA: ${cs.preop.asa ?? "null"}  ventModes: ${cs.ventModes.length}\n` +
+      `  total Remifentanilo (sin concentración): ${model.drugRows.find((d) => d.name === "Remifentanilo")?.total?.text ?? "-"}\n` +
+      `  ${problems.length === 0 ? "✓ abre y exporta OK" : "✗ " + problems.join("; ")}`,
+  );
+  if (problems.length) anyProblem = true;
+} catch (e) {
+  anyProblem = true;
+  console.log(`\n=== caso ANTIGUO ===\n  ✗ EXCEPCIÓN: ${(e as Error).message}`);
+}
+
 console.log(anyProblem ? "\nRESULTADO: con problemas" : "\nRESULTADO: todo OK");
