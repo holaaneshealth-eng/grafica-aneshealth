@@ -11,6 +11,7 @@ import {
   type BloodProductRecord,
   type LabRecord,
   type BalanceRecord,
+  type VentModeRecord,
   emptyCaseState,
 } from "../domain/events";
 
@@ -131,6 +132,9 @@ function applyEvent(state: CaseState, e: BaseEvent): CaseState {
             gasPercent: inf.gas && !isStop ? (p.gasPercent as number) : inf.gasPercent,
             active: isStop ? false : inf.active,
             stoppedAt: isStop ? e.occurredAt : inf.stoppedAt,
+            totalInfused: isStop && p.totalInfused != null ? (p.totalInfused as number) : inf.totalInfused,
+            totalInfusedUnit: isStop && p.totalInfusedUnit != null ? (p.totalInfusedUnit as string) : inf.totalInfusedUnit,
+            tciModel: (p.tciModel as string) ?? inf.tciModel,
             changes: [...(inf.changes ?? []), change],
           };
         }),
@@ -144,6 +148,8 @@ function applyEvent(state: CaseState, e: BaseEvent): CaseState {
       };
     case "WEIGHT_UPDATED":
       return { ...state, preop: { ...state.preop, weightKg: p.weightKg as number } };
+    case "VENT_MODE_SET":
+      return { ...state, ventModes: [...(state.ventModes ?? []), p as unknown as VentModeRecord] };
     case "VITALS_RECORDED":
       return { ...state, vitals: [...state.vitals, p as unknown as VitalsRecord] };
     case "VITALS_UPDATED":

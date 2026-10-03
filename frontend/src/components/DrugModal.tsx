@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Modal } from "./Modal";
 import { TimeField } from "./TimeField";
 import { TemplatePanel } from "./TemplatePanel";
-import { DRUG_UNITS, drugByName, drugsForMode, dilutionsFor } from "../domain/drugs";
+import { DRUG_UNITS, drugByName, drugsForMode, dilutionsFor, tciInfo } from "../domain/drugs";
 import { computeInfusion, rateFromDose, formatNum, type DoseRateUnit, type MassUnit } from "../domain/calculations";
 import { useStore } from "../store/store";
 import type { CaseState, InfusionRecord } from "../domain/events";
@@ -41,6 +41,9 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
   const [doseUnit, setDoseUnit] = useState<DoseRateUnit>("mcg/kg/min");
   const [rateUnit, setRateUnit] = useState<string>("ml/h"); // unidad seleccionada del ritmo
   const [tciUnit, setTciUnit] = useState("µg/ml"); // unidad del objetivo TCI
+  const [tciModel, setTciModel] = useState(""); // modelo PK (opcional)
+  const [totalInfused, setTotalInfused] = useState(""); // total según bomba al finalizar TCI
+  const [totalInfusedUnit, setTotalInfusedUnit] = useState("ml");
   const [weight, setWeight] = useState(cs.preop.weightKg ? String(cs.preop.weightKg) : "");
 
   // Gas / cambio de ritmo
@@ -60,6 +63,17 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
     () => cs.infusions.find((i) => i.active && i.drug.trim().toLowerCase() === drug.trim().toLowerCase()),
     [cs.infusions, drug],
   );
+
+  const tciDef = tciInfo(drug);
+  // Al cambiar de fármaco: ajusta la unidad diana y la del total según bomba; resetea el modelo.
+  useEffect(() => {
+    if (tciDef) {
+      setTciUnit(tciDef.targetUnit);
+      setTotalInfusedUnit(tciDef.totalUnit);
+    }
+    setTciModel("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drug]);
 
   const allergyHit = useMemo(() => {
     const a = cs.preop.allergies.trim().toLowerCase();
@@ -212,10 +226,10 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
         cs.caseId,
         "INFUSION_STARTED",
         {
-          id: rid(), drug, tci: tciMode, tciUnit,
+          id: rid(), drug, tci: tciMode, tciUnit, tciModel: tciModel || undefined,
           amount: 0, amountUnit, diluentVolumeMl: 0, concentration: 0, concentrationUnit: tciUnit,
           rateMlH: target, weightBasedDose: target, doseUnit: `${tciUnit} (${modeLabel})`,
-          summary: `${modeLabel} ${formatNum(target)} ${tciUnit}`, startedAt: at, active: true,
+          summary: `${modeLabel} ${formatNum(target)} ${tciUnit}${tciModel ? ` (${tciModel})` : ""}`, startedAt: at, active: true,
         },
         at,
       );
@@ -263,7 +277,18 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
       const stop = target === 0;
       const modeLabel = activeInf.tci === "plasma" ? "Cp" : "Ce";
       const unit = activeInf.tciUnit ?? "µg/ml";
-      append(cs.caseId, "INFUSION_RATE_CHANGED", { id: activeInf.id, drug: activeInf.drug, tci: activeInf.tci, rateMlH: target, weightBasedDose: target, doseUnit: `${unit} (${modeLabel})`, summary: stop ? "Fin" : `${modeLabel} ${formatNum(target)} ${unit}` }, at);
+      const ti = parseFloat(totalInfused.replace(",", "."));
+      append(
+        cs.caseId,
+        "INFUSION_RATE_CHANGED",
+        {
+          id: activeInf.id, drug: activeInf.drug, tci: activeInf.tci, rateMlH: target, weightBasedDose: target,
+          doseUnit: `${unit} (${modeLabel})`, summary: stop ? "Fin" : `${modeLabel} ${formatNum(target)} ${unit}`,
+          ...(stop && isFinite(ti) && ti > 0 ? { totalInfused: ti, totalInfusedUnit } : {}),
+          ...(!stop && tciModel ? { tciModel } : {}),
+        },
+        at,
+      );
       onDone(stop ? `Fin de perfusión: ${activeInf.drug}` : `TCI actualizada: ${activeInf.drug}`);
       onClose();
       return;
@@ -473,6 +498,33 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
                     </label>
                     <input inputMode="decimal" type="text" value={newRate} onChange={(e) => setNewRate(e.target.value)} placeholder="Ej. 3 · 0 = fin" autoFocus />
                   </div>
+                  {newRate !== "0" && tciDef && (
+                    <div className="field">
+                      <label>Modelo farmacocinético (opcional)</label>
+                      <select value={tciModel} onChange={(e) => setTciModel(e.target.value)}>
+                        <option value="">— sin modelo —</option>
+                        {tciDef.models.map((m) => (
+                          <option key={m}>{m}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  {newRate === "0" && (
+                    <div className="row">
+                      <div className="field">
+                        <label>Total infundido según bomba (opcional)</label>
+                        <input inputMode="decimal" type="text" value={totalInfused} onChange={(e) => setTotalInfused(e.target.value)} placeholder="Ej. 420" />
+                      </div>
+                      <div className="field">
+                        <label>Unidad</label>
+                        <select value={totalInfusedUnit} onChange={(e) => setTotalInfusedUnit(e.target.value)}>
+                          <option>mg</option>
+                          <option>µg</option>
+                          <option>ml</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
                   <button className={`btn block lg ${newRate === "0" ? "danger" : "primary"}`} onClick={saveRateChange} disabled={newRate === ""}>
                     {newRate === "0" ? "Finalizar perfusión" : "Actualizar objetivo TCI"}
                   </button>
@@ -542,6 +594,17 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
                       </select>
                     </div>
                   </div>
+                  {tciDef && (
+                    <div className="field">
+                      <label>Modelo farmacocinético (opcional)</label>
+                      <select value={tciModel} onChange={(e) => setTciModel(e.target.value)}>
+                        <option value="">— sin modelo —</option>
+                        {tciDef.models.map((m) => (
+                          <option key={m}>{m}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                   <button className="btn primary block lg" onClick={saveNewInfusion} disabled={!drug || !rate}>
                     Iniciar TCI
                   </button>

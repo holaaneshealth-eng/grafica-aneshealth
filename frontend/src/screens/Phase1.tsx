@@ -3,6 +3,7 @@ import { useStore } from "../store/store";
 import type { CaseState } from "../domain/events";
 import { isoFromLocalInput, isoToLocalInput } from "../utils/time";
 import { YesNo } from "../components/YesNo";
+import { ASA_CLASSES } from "../pdf/config/chartParams";
 
 interface Props {
   cs: CaseState;
@@ -20,6 +21,8 @@ export function Phase1({ cs }: Props) {
     cs.preop.antibioticTime ? isoToLocalInput(cs.preop.antibioticTime) : "",
   );
   const [breastfeeding, setBreastfeeding] = useState<boolean | null>(cs.preop.breastfeeding ?? null);
+  const [asa, setAsa] = useState<string | null>(cs.preop.asa ?? null);
+  const [asaEmergency, setAsaEmergency] = useState<boolean>(cs.preop.asaEmergency ?? false);
 
   // Autosave con debounce: cada cambio genera un evento PREOP_INFO_RECORDED.
   useEffect(() => {
@@ -33,11 +36,13 @@ export function Phase1({ cs }: Props) {
         antibiotic,
         antibioticTime: antibiotic.trim() && antibioticTime ? isoFromLocalInput(antibioticTime) : null,
         breastfeeding,
+        asa,
+        asaEmergency,
       });
     }, 700);
     return () => clearTimeout(h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allergies, height, weight, history, medication, antibiotic, antibioticTime, breastfeeding]);
+  }, [allergies, height, weight, history, medication, antibiotic, antibioticTime, breastfeeding, asa, asaEmergency]);
 
   return (
     <div>
@@ -79,6 +84,20 @@ export function Phase1({ cs }: Props) {
             Medicación relevante <span className="req">*</span>
           </label>
           <textarea value={medication} onChange={(e) => setMedication(e.target.value)} placeholder="Ej. Enalapril / Ninguna" />
+        </div>
+
+        <div className="field">
+          <label>Clasificación ASA</label>
+          <div className="chips">
+            {ASA_CLASSES.map((c) => (
+              <button key={c} className={`chip ${asa === c ? "on" : ""}`} onClick={() => setAsa(asa === c ? null : c)}>
+                {c}
+              </button>
+            ))}
+            <button className={`chip ${asaEmergency ? "on" : ""}`} onClick={() => setAsaEmergency(!asaEmergency)}>
+              E (urgencia)
+            </button>
+          </div>
         </div>
       </div>
 

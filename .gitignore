@@ -17,3 +17,9 @@ yarn-error.log*
 data/
 **/data/
 INITIAL_CREDENTIALS.txt
+
+# PDFs/PNGs de prueba y temporales de fuentes
+out/
+frontend/out/
+.fonttmp/
+frontend/.fonttmp/
