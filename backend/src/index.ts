@@ -15,6 +15,7 @@ import { casesRouter } from "./routes/cases.routes";
 import { usersRouter } from "./routes/users.routes";
 import { auditRouter } from "./routes/audit.routes";
 import { mailRouter } from "./routes/mail.routes";
+import { visionRouter } from "./routes/vision.routes";
 
 // Red de seguridad: registrar (no matar el proceso) ante promesas rechazadas sin capturar.
 process.on("unhandledRejection", (reason) => {
@@ -62,7 +63,7 @@ async function main(): Promise<void> {
 
   app.use(compression());
   // 2 MB: permite adjuntar la imagen de la hoja (<=870 KB) codificada en base64 (~1,2 MB).
-  app.use(express.json({ limit: "2mb" }));
+  app.use(express.json({ limit: "12mb" })); // margen para imágenes/PDF en base64
   app.use(cookieParser());
   app.use(globalLimiter);
 
@@ -72,6 +73,7 @@ async function main(): Promise<void> {
   app.use("/api/users", usersRouter);
   app.use("/api/audit", auditRouter);
   app.use("/api/mail", mailRouter);
+  app.use("/api/vision", visionRouter);
   app.use("/api", notFound);
 
   // Servir el frontend compilado (SPA) desde el mismo origen.

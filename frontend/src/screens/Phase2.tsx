@@ -8,6 +8,7 @@ import { MedicationTimeline } from "../components/MedicationTimeline";
 import { BloodProductModal } from "../components/BloodProductModal";
 import { LabModal } from "../components/LabModal";
 import { VitalsModal } from "../components/VitalsModal";
+import { VisionImportModal } from "../components/VisionImportModal";
 import { Modal } from "../components/Modal";
 import { TimeField } from "../components/TimeField";
 import type { VitalsRecord } from "../domain/events";
@@ -376,6 +377,7 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
   const [bleeding, setBleeding] = useState("");
   const [diuresis, setDiuresis] = useState("");
   const [balTime, setBalTime] = useState(nowLocalInput());
+  const [showVision, setShowVision] = useState(false);
 
   // Calculadora de pérdidas insensibles / evaporativas
   const [exposureId, setExposureId] = useState(EXPOSURE_OPTIONS[1].id);
@@ -504,6 +506,15 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
 
   return (
     <div>
+      <div className="card">
+        <h2>Importar constantes desde foto</h2>
+        <p className="sub">Haz una foto de la pantalla de tendencias del monitor; revisas los valores y los vuelcas. El registro manual sigue igual.</p>
+        <button className="btn primary block lg" onClick={() => setShowVision(true)}>
+          📷 Importar desde foto
+        </button>
+      </div>
+      {showVision && <VisionImportModal cs={cs} onClose={() => setShowVision(false)} onDone={(m) => toast(m)} />}
+
       <div className="card">
         <h2>Modo ventilatorio</h2>
         <p className="sub">

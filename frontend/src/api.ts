@@ -128,6 +128,8 @@ export const api = {
   deleteCase: (id: string) => request<{ ok: true }>(`/cases/${id}`, "DELETE"),
   sendSheetEmail: (payload: { imageBase64: string; filename: string; mimeType: string; ia?: string }) =>
     request<{ ok: true; to: string; subject: string }>("/mail/send", "POST", payload),
+  visionImport: (payload: { imageBase64: string; mimeType: string }) =>
+    request<{ readings: { hora: string; parametro: string; valor: number; unidad?: string }[] }>("/vision/import", "POST", payload),
 
   listUsers: () => request<{ users: AdminUserRow[] }>("/users"),
   createUser: (u: { username: string; displayName: string; role: string; location?: string; password: string }) =>
