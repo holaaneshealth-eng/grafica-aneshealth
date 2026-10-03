@@ -51,6 +51,8 @@ export interface Diagnostics {
   footnotes: number;
   bandSplits: number;
   warnings: string[];
+  colWidthMm: number; // ancho real de cada columna de 5 min
+  labelColWMm: number; // ancho de la columna de etiquetas
 }
 
 type Row =
@@ -92,7 +94,7 @@ function rowLabel(r: Row): string {
 }
 
 export function renderChart(doc: jsPDF, model: ChartModel, reuseFirstPage = true): Diagnostics {
-  const diag: Diagnostics = { pageCount: 0, minFontPt: 99, labelBoxes: [], footnotes: 0, bandSplits: 0, warnings: [] };
+  const diag: Diagnostics = { pageCount: 0, minFontPt: 99, labelBoxes: [], footnotes: 0, bandSplits: 0, warnings: [], colWidthMm: 0, labelColWMm: 0 };
   registerFonts(doc);
   const pageW = A4_LANDSCAPE.w;
   const pageH = A4_LANDSCAPE.h;
@@ -121,6 +123,8 @@ export function renderChart(doc: jsPDF, model: ChartModel, reuseFirstPage = true
   const plotRight = pageW - MARGIN - totalColW;
   const plotWidth = plotRight - plotLeft;
   const colWidth = plotWidth / COLS_PER_PAGE;
+  diag.colWidthMm = colWidth;
+  diag.labelColWMm = labelColW;
 
   const gridTop = MARGIN + HEADER_H;
   const bandsTop = gridTop + AXIS_H + MILESTONE_STRIP_H;

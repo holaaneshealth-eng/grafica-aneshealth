@@ -163,29 +163,36 @@ export function buildChartModel(cs: CaseState): ChartModel {
 
     const infusions: DrugInfusionSegment[] = [];
     let rowUnit = boluses[0]?.unit ?? "";
-    let infusionVolMl = 0;
+
+    // Total en MASA de fármaco (combina bolos y perfusión cuando comparten unidad de masa).
+    const massByUnit = new Map<string, number>();
+    boluses.forEach((b) => massByUnit.set(b.unit, (massByUnit.get(b.unit) ?? 0) + b.dose));
+    let infVolNoConcMl = 0; // perfusión sin concentración conocida -> se muestra en ml de solución
     const extraTotals: string[] = [];
+
     for (const inf of infs) {
       rowUnit = infusionRowUnit(inf) || rowUnit;
       for (const s of buildSegments(inf, endAt)) infusions.push(s);
-      // volumen convencional entregado (no TCI, no gas)
       if (!inf.tci && !inf.gas) {
+        // unidad de masa a partir de la concentración de la jeringa (p. ej. "mcg/ml" -> µg).
+        const massUnit = inf.concentration > 0 && inf.concentrationUnit ? prettyUnit(inf.concentrationUnit.replace(/\s*\/\s*ml$/i, "")) : null;
         const chs = (inf.changes ?? []).slice().sort((a, b) => a.at.localeCompare(b.at));
         for (let i = 0; i < chs.length; i++) {
           if (chs[i].stop) continue;
           const to = chs[i + 1] ? ms(chs[i + 1].at) : inf.stoppedAt ? ms(inf.stoppedAt) : endAt;
-          infusionVolMl += (chs[i].rateMlH * (to - ms(chs[i].at))) / 3_600_000;
+          const ml = (chs[i].rateMlH * (to - ms(chs[i].at))) / 3_600_000;
+          if (massUnit) massByUnit.set(massUnit, (massByUnit.get(massUnit) ?? 0) + ml * inf.concentration);
+          else infVolNoConcMl += ml;
         }
       }
       // total infundido según bomba (TCI finalizada)
       if (inf.totalInfused != null) extraTotals.push(`${formatNum(inf.totalInfused)} ${prettyUnit(inf.totalInfusedUnit ?? "ml")} (bomba)`);
     }
 
-    const byUnit = new Map<string, number>();
-    boluses.forEach((b) => byUnit.set(b.unit, (byUnit.get(b.unit) ?? 0) + b.dose));
+    const roundMass = (v: number, u: string) => (u === "mg" ? Math.round(v * 10) / 10 : Math.round(v));
     const parts: string[] = [];
-    byUnit.forEach((v, u) => parts.push(`${formatNum(v)} ${u}`));
-    if (infusionVolMl > 0.05) parts.push(`${formatNum(Math.round(infusionVolMl * 10) / 10)} ml perf.`);
+    massByUnit.forEach((v, u) => parts.push(`${formatNum(roundMass(v, u))} ${u}`));
+    if (infVolNoConcMl > 0.05) parts.push(`${formatNum(Math.round(infVolNoConcMl))} ml de solución`);
     parts.push(...extraTotals);
     const total = parts.length ? { text: parts.join(" · ") } : null;
 
