@@ -8,6 +8,11 @@ export const visionRouter = Router();
 
 visionRouter.use(authGuard, csrfGuard, requirePasswordChanged);
 
+// Indica si el motor de pago (Claude) está disponible (hay clave configurada).
+visionRouter.get("/status", (_req, res) => {
+  res.json({ claudeAvailable: !!config.vision.anthropicApiKey, model: config.vision.model });
+});
+
 const bodySchema = z.object({
   // Foto del monitor en base64 (con o sin prefijo data:). Límite amplio para fotos de móvil.
   imageBase64: z.string().min(16).max(12_000_000),
