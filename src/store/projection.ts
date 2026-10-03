@@ -8,6 +8,9 @@ import {
   type IncidentRecord,
   type MilestoneRecord,
   type TechniqueRecord,
+  type VentModeRecord,
+  type FluidInputRecord,
+  type FluidOutputRecord,
   emptyCaseState,
 } from "../domain/events";
 
@@ -89,6 +92,12 @@ function applyEvent(state: CaseState, e: BaseEvent): CaseState {
       return { ...state, preop: { ...state.preop, weightKg: p.weightKg as number } };
     case "VITALS_RECORDED":
       return { ...state, vitals: [...state.vitals, p as unknown as VitalsRecord] };
+    case "VENT_MODE_SET":
+      return { ...state, ventModes: [...state.ventModes, p as unknown as VentModeRecord] };
+    case "FLUID_IN":
+      return { ...state, fluidInputs: [...state.fluidInputs, p as unknown as FluidInputRecord] };
+    case "FLUID_OUT":
+      return { ...state, fluidOutputs: [...state.fluidOutputs, p as unknown as FluidOutputRecord] };
     case "INCIDENT":
       return { ...state, incidents: [...state.incidents, p as unknown as IncidentRecord] };
     case "MILESTONE":
@@ -161,6 +170,15 @@ export function buildTimeline(events: BaseEvent[]): TimelineItem[] {
         break;
       case "WEIGHT_UPDATED":
         items.push({ id: e.eventId, at: e.occurredAt, kind: "note", label: "Peso actualizado", detail: `${p.weightKg} kg` });
+        break;
+      case "VENT_MODE_SET":
+        items.push({ id: e.eventId, at: e.occurredAt, kind: "note", label: "Modo ventilatorio", detail: p.mode as string });
+        break;
+      case "FLUID_IN":
+        items.push({ id: e.eventId, at: e.occurredAt, kind: "fluid", label: `${p.label}`, detail: `${p.volumeMl} ml` });
+        break;
+      case "FLUID_OUT":
+        items.push({ id: e.eventId, at: e.occurredAt, kind: "fluid", label: `${p.category}`, detail: `${p.volumeMl} ml` });
         break;
       case "SURGERY_ENDED":
         items.push({ id: e.eventId, at: e.occurredAt, kind: "case", label: "Fin de cirugia" });

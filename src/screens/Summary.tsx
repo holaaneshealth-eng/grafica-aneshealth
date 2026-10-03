@@ -3,6 +3,7 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import type { CaseState } from "../domain/events";
 import { useStore } from "../store/store";
+import { generateGraphicPages } from "../pdf";
 import { TrendCharts } from "../components/TrendCharts";
 import { dmy, hhmm, durationBetween } from "../utils/time";
 import { STANDARD_PARAMS } from "../domain/monitoring";
@@ -17,6 +18,7 @@ export function Summary({ cs, onToast }: Props) {
   const sheetRef = useRef<HTMLDivElement>(null);
   const append = useStore((s) => s.append);
   const getTimeline = useStore((s) => s.getTimeline);
+  const getCaseEvents = useStore((s) => s.getCaseEvents);
   const timeline = getTimeline(cs.caseId);
   const [busy, setBusy] = useState(false);
 
@@ -32,23 +34,30 @@ export function Summary({ cs, onToast }: Props) {
   async function exportPDF() {
     setBusy(true);
     try {
+      // Documento combinado: gráfica vectorial (A4 horizontal) + resto en A4 vertical.
+      const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+
+      // FASE 1 — Gráfica anestésica (vectorial)
+      generateGraphicPages(pdf, cs, getCaseEvents(cs.caseId), true);
+
+      // Resto del documento (se rediseña en FASE 2): pliego textual actual en vertical.
       const canvas = await renderCanvas();
-      const pdf = new jsPDF("p", "mm", "a4");
-      const pw = pdf.internal.pageSize.getWidth();
-      const ph = pdf.internal.pageSize.getHeight();
-      const imgH = (canvas.height * pw) / canvas.width;
       const img = canvas.toDataURL("image/png");
+      const pw = 210;
+      const ph = 297;
+      const imgH = (canvas.height * pw) / canvas.width;
+      pdf.addPage("a4", "portrait");
       let pos = 0;
       let left = imgH;
-      // Paginado si excede A4
       while (left > 0) {
         pdf.addImage(img, "PNG", 0, pos, pw, imgH);
         left -= ph;
         if (left > 0) {
-          pdf.addPage();
+          pdf.addPage("a4", "portrait");
           pos -= ph;
         }
       }
+
       pdf.save(`hoja-anestesica-${cs.ia}.pdf`);
       onToast("PDF generado");
     } finally {
@@ -86,7 +95,7 @@ export function Summary({ cs, onToast }: Props) {
     <div>
       <div className="card no-print">
         <h2>Finalizacion</h2>
-        <p className="sub">Genera la hoja anestesica en A4 vertical, firma y envio.</p>
+        <p className="sub">Genera la hoja anestesica (grafica en A4 horizontal + resto en vertical), firma y envio.</p>
         <div className="grid2">
           <button className="btn primary lg" onClick={exportPDF} disabled={busy}>
             {busy ? "Generando..." : "Descargar PDF"}

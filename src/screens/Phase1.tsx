@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useStore } from "../store/store";
 import type { CaseState } from "../domain/events";
+import { ASA_CLASSES } from "../pdf/config/chartParams";
 
 interface Props {
   cs: CaseState;
@@ -13,6 +14,8 @@ export function Phase1({ cs }: Props) {
   const [weight, setWeight] = useState(cs.preop.weightKg ? String(cs.preop.weightKg) : "");
   const [history, setHistory] = useState(cs.preop.history);
   const [medication, setMedication] = useState(cs.preop.medication);
+  const [asa, setAsa] = useState<string | null>(cs.preop.asa);
+  const [asaEmergency, setAsaEmergency] = useState<boolean>(cs.preop.asaEmergency);
 
   // Autosave con debounce: cada cambio genera un evento PREOP_INFO_RECORDED.
   useEffect(() => {
@@ -23,11 +26,13 @@ export function Phase1({ cs }: Props) {
         weightKg: weight ? parseFloat(weight.replace(",", ".")) : null,
         history,
         medication,
+        asa,
+        asaEmergency,
       });
     }, 700);
     return () => clearTimeout(h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allergies, height, weight, history, medication]);
+  }, [allergies, height, weight, history, medication, asa, asaEmergency]);
 
   return (
     <div>
@@ -69,6 +74,20 @@ export function Phase1({ cs }: Props) {
             Medicacion relevante <span className="req">*</span>
           </label>
           <textarea value={medication} onChange={(e) => setMedication(e.target.value)} placeholder="Ej. Enalapril / Ninguna" />
+        </div>
+
+        <div className="field">
+          <label>Clasificacion ASA</label>
+          <div className="chips">
+            {ASA_CLASSES.map((c) => (
+              <button key={c} className={`chip ${asa === c ? "on" : ""}`} onClick={() => setAsa(asa === c ? null : c)}>
+                {c}
+              </button>
+            ))}
+            <button className={`chip ${asaEmergency ? "on" : ""}`} onClick={() => setAsaEmergency(!asaEmergency)}>
+              E (urgencia)
+            </button>
+          </div>
         </div>
       </div>
     </div>

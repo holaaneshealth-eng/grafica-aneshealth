@@ -17,6 +17,9 @@ export type EventType =
   | "INFUSION_STOPPED"
   | "VITALS_RECORDED"
   | "WEIGHT_UPDATED"
+  | "VENT_MODE_SET"
+  | "FLUID_IN"
+  | "FLUID_OUT"
   | "MILESTONE"
   | "INCIDENT"
   | "SURGERY_ENDED"
@@ -40,6 +43,8 @@ export interface PreopInfo {
   weightKg: number | null;
   history: string;
   medication: string;
+  asa: string | null; // "I".."VI"
+  asaEmergency: boolean; // modificador "E" (urgencia)
 }
 
 export interface SafetyChecklist {
@@ -85,13 +90,41 @@ export interface InfusionRecord {
   startedAt: string;
   stoppedAt?: string | null;
   active: boolean;
+  // Perfusión controlada por objetivo (TCI). Opcional.
+  tci?: boolean;
+  targetType?: "Cp" | "Ce"; // concentración plasmática o en sitio efecto
+  targetConc?: number;
+  targetUnit?: string; // "µg/ml" (propofol) | "ng/ml" (remi, dexmed)
+  tciModel?: string; // Marsh/Schnider/Eleveld/Minto/Dyck/Hannivoort
+}
+
+export interface VentModeRecord {
+  id: string;
+  at: string;
+  mode: string; // VC, PC, PRVC, SIMV, Presion soporte, Espontanea
+}
+
+export interface FluidInputRecord {
+  id: string;
+  at: string;
+  category: "cristaloide" | "coloide" | "sangre" | "hemoderivado";
+  label: string; // p. ej. "Ringer lactato", "Concentrado de hematíes"
+  volumeMl: number;
+}
+
+export interface FluidOutputRecord {
+  id: string;
+  from: string;
+  to: string;
+  category: "sangrado" | "diuresis";
+  volumeMl: number;
 }
 
 export interface VitalsRecord {
   id: string;
   at: string;
   values: Record<string, number>;
-  source: "manual" | "device";
+  source: "manual" | "device" | "photo"; // "photo" = importado desde foto del monitor (Fase 3)
 }
 
 export interface IncidentRecord {
@@ -122,6 +155,9 @@ export interface CaseState {
   boluses: BolusRecord[];
   infusions: InfusionRecord[];
   vitals: VitalsRecord[];
+  ventModes: VentModeRecord[];
+  fluidInputs: FluidInputRecord[];
+  fluidOutputs: FluidOutputRecord[];
   incidents: IncidentRecord[];
   milestones: MilestoneRecord[];
   endedAt?: string | null;
@@ -137,13 +173,16 @@ export function emptyCaseState(caseId: string, ia: string, year: number, ordinal
     ordinal,
     createdAt,
     phase: "PREOP",
-    preop: { allergies: "", heightCm: null, weightKg: null, history: "", medication: "" },
+    preop: { allergies: "", heightCm: null, weightKg: null, history: "", medication: "", asa: null, asaEmergency: false },
     safety: { monitorChecked: null, ventilatorChecked: null, suctionReady: null, ambuReady: null },
     monitoring: { standard: [], custom: [] },
     techniques: [],
     boluses: [],
     infusions: [],
     vitals: [],
+    ventModes: [],
+    fluidInputs: [],
+    fluidOutputs: [],
     incidents: [],
     milestones: [],
     endedAt: null,

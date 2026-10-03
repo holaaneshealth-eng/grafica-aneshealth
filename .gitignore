@@ -10,3 +10,7 @@ yarn-debug.log*
 yarn-error.log*
 
 *.tsbuildinfo
+
+# PDFs/PNGs de prueba generados por scripts/genChartSamples.ts
+out/
+.fonttmp/

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Modal } from "./Modal";
-import { DRUGS, DRUG_UNITS, drugByName } from "../domain/drugs";
+import { DRUGS, DRUG_UNITS, drugByName, tciInfo } from "../domain/drugs";
 import { computeInfusion, formatNum, type DoseRateUnit, type MassUnit } from "../domain/calculations";
 import { useStore } from "../store/store";
 import type { CaseState } from "../domain/events";
@@ -23,6 +23,7 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
   const [unit, setUnit] = useState("mg");
 
   // Infusion
+  const [infusionKind, setInfusionKind] = useState<"conventional" | "tci">("conventional");
   const [amount, setAmount] = useState("");
   const [amountUnit, setAmountUnit] = useState<MassUnit>("mg");
   const [diluent, setDiluent] = useState("");
@@ -30,7 +31,13 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
   const [doseUnit, setDoseUnit] = useState<DoseRateUnit>("mcg/kg/min");
   const [weight, setWeight] = useState(cs.preop.weightKg ? String(cs.preop.weightKg) : "");
 
+  // TCI
+  const [targetConc, setTargetConc] = useState("");
+  const [targetType, setTargetType] = useState<"Cp" | "Ce">("Ce");
+  const [tciModel, setTciModel] = useState("");
+
   const def = drugByName(drug);
+  const tci = tciInfo(drug);
 
   // Comprobacion de alergia cruzada frente a lo registrado en Fase 1.
   const allergyHit = useMemo(() => {
@@ -48,6 +55,9 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
       if (d.defaultUnit === "mg" || d.defaultUnit === "mcg") setAmountUnit(d.defaultUnit as MassUnit);
       if (d.infusionDoseUnit) setDoseUnit(d.infusionDoseUnit as DoseRateUnit);
     }
+    const t = tciInfo(name);
+    setTciModel(t ? t.models[0] : "");
+    if (!t) setInfusionKind("conventional");
   }
 
   const calc = useMemo(() => {
@@ -77,6 +87,33 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
       at: new Date().toISOString(),
     });
     onDone(`${drug} ${formatNum(d)} ${unit} registrado`);
+    onClose();
+  }
+
+  function saveTci() {
+    const tc = parseFloat(targetConc.replace(",", "."));
+    if (!drug || !tci || !tc) return;
+    append(cs.caseId, "INFUSION_STARTED", {
+      id: rid(),
+      drug,
+      amount: 0,
+      amountUnit,
+      diluentVolumeMl: 0,
+      concentration: 0,
+      concentrationUnit: "",
+      rateMlH: 0,
+      weightBasedDose: 0,
+      doseUnit: "",
+      summary: `TCI ${targetType} ${formatNum(tc)} ${tci.targetUnit}${tciModel ? ` (${tciModel})` : ""}`,
+      startedAt: new Date().toISOString(),
+      active: true,
+      tci: true,
+      targetType,
+      targetConc: tc,
+      targetUnit: tci.targetUnit,
+      tciModel,
+    });
+    onDone(`TCI ${drug} iniciada (${targetType} ${formatNum(tc)} ${tci.targetUnit})`);
     onClose();
   }
 
@@ -171,6 +208,59 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
         </>
       ) : (
         <>
+          {tci && (
+            <div className="seg" style={{ marginBottom: 10 }}>
+              <button className={infusionKind === "conventional" ? "on" : ""} onClick={() => setInfusionKind("conventional")}>
+                Convencional
+              </button>
+              <button className={infusionKind === "tci" ? "on" : ""} onClick={() => setInfusionKind("tci")}>
+                TCI
+              </button>
+            </div>
+          )}
+
+          {tci && infusionKind === "tci" ? (
+            <>
+              <div className="row">
+                <div className="field">
+                  <label>Concentracion diana ({tci.targetUnit})</label>
+                  <input inputMode="decimal" type="text" value={targetConc} onChange={(e) => setTargetConc(e.target.value)} />
+                </div>
+                <div className="field">
+                  <label>Diana</label>
+                  <div className="yesno">
+                    <button className={`yes ${targetType === "Cp" ? "on" : ""}`} onClick={() => setTargetType("Cp")}>
+                      Cp (plasma)
+                    </button>
+                    <button className={`no ${targetType === "Ce" ? "on" : ""}`} onClick={() => setTargetType("Ce")}>
+                      Ce (sitio efecto)
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="field">
+                <label>Modelo farmacocinetico</label>
+                <select value={tciModel} onChange={(e) => setTciModel(e.target.value)}>
+                  {tci.models.map((m) => (
+                    <option key={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+              {targetConc && (
+                <div className="calc-box">
+                  <div className="muted" style={{ fontSize: 13 }}>Objetivo</div>
+                  <div className="big">
+                    {targetType} {formatNum(parseFloat(targetConc.replace(",", ".")) || 0)} {tci.targetUnit}
+                    {tciModel ? ` (${tciModel})` : ""}
+                  </div>
+                </div>
+              )}
+              <button className="btn primary block lg" onClick={saveTci} disabled={!drug || !targetConc}>
+                Iniciar TCI
+              </button>
+            </>
+          ) : (
+          <>
           <div className="row">
             <div className="field">
               <label>Principio activo</label>
@@ -228,6 +318,8 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
           <button className="btn primary block lg" onClick={saveInfusion} disabled={!drug || !calc}>
             Iniciar perfusion
           </button>
+          </>
+          )}
         </>
       )}
     </Modal>

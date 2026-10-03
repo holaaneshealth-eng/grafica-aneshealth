@@ -8,6 +8,22 @@ export interface DrugDef {
   infusionDoseUnit?: string; // unidad tipica en perfusion
 }
 
+// Fármacos que admiten perfusión controlada por objetivo (TCI).
+// targetUnit: unidad de la concentración diana. models: modelos farmacocinéticos.
+export interface TciInfo {
+  targetUnit: string;
+  models: string[];
+}
+export const TCI_DRUGS: Record<string, TciInfo> = {
+  Propofol: { targetUnit: "µg/ml", models: ["Marsh", "Schnider", "Eleveld"] },
+  Remifentanilo: { targetUnit: "ng/ml", models: ["Minto", "Eleveld"] },
+  Dexmedetomidina: { targetUnit: "ng/ml", models: ["Dyck", "Hannivoort"] },
+};
+
+export function tciInfo(drug: string): TciInfo | undefined {
+  return TCI_DRUGS[drug];
+}
+
 export const DRUGS: DrugDef[] = [
   // Hipnoticos
   { name: "Propofol", group: "Hipnotico", defaultUnit: "mg", commonBolus: [100, 150, 180, 200], infusionDoseUnit: "mcg/kg/min" },
@@ -29,6 +45,7 @@ export const DRUGS: DrugDef[] = [
   { name: "Efedrina", group: "Vasoactivo", defaultUnit: "mg", commonBolus: [5, 6, 10] },
   { name: "Atropina", group: "Vasoactivo", defaultUnit: "mg", commonBolus: [0.5, 1] },
   { name: "Dobutamina", group: "Vasoactivo", defaultUnit: "mcg", infusionDoseUnit: "mcg/kg/min" },
+  { name: "Dexmedetomidina", group: "Sedante", defaultUnit: "mcg", infusionDoseUnit: "mcg/kg/h" },
   // Analgesia / antiemesis
   { name: "Dexametasona", group: "Otros", defaultUnit: "mg", commonBolus: [4, 8] },
   { name: "Ondansetron", group: "Otros", defaultUnit: "mg", commonBolus: [4, 8] },

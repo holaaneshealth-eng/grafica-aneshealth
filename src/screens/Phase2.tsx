@@ -6,6 +6,8 @@ import { TECHNIQUES, techniqueById, type TechniqueField } from "../domain/techni
 import { TrendCharts } from "../components/TrendCharts";
 import { hhmm } from "../utils/time";
 import { formatNum } from "../domain/calculations";
+import { VENT_MODES } from "../pdf/config/chartParams";
+import { MILESTONE_LABELS } from "../pdf/config/milestones";
 
 interface Props {
   cs: CaseState;
@@ -13,7 +15,7 @@ interface Props {
 
 type Tab = "safety" | "monitor" | "technique" | "record" | "charts";
 
-const MILESTONES = ["Entrada en quirofano", "Monitor conectado", "Preoxigenacion", "Induccion", "Intubacion", "Inicio cirugia", "Fin cirugia"];
+const MILESTONES = MILESTONE_LABELS;
 
 export function Phase2({ cs }: Props) {
   const [tab, setTab] = useState<Tab>("safety");
@@ -281,8 +283,12 @@ function RecordSection({ cs }: Props) {
   function stopInfusion(id: string, drug: string) {
     append(cs.caseId, "INFUSION_STOPPED", { id, drug });
   }
+  function setVentMode(mode: string) {
+    append(cs.caseId, "VENT_MODE_SET", { id: "vm-" + Date.now(), at: new Date().toISOString(), mode });
+  }
 
   const activeInfusions = cs.infusions.filter((i) => i.active);
+  const currentVentMode = cs.ventModes.length ? cs.ventModes[cs.ventModes.length - 1].mode : null;
 
   return (
     <div>
@@ -292,6 +298,21 @@ function RecordSection({ cs }: Props) {
         <div className="chips">
           {MILESTONES.map((m) => (
             <button key={m} className="chip" onClick={() => milestone(m)}>
+              {m}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="card">
+        <h2>Modo ventilatorio</h2>
+        <p className="sub">
+          Se registra con su hora. Aparece en la grafica como parametro fijado (cifra al inicio y en cada cambio).
+          {currentVentMode ? ` Actual: ${currentVentMode}.` : ""}
+        </p>
+        <div className="chips">
+          {VENT_MODES.map((m) => (
+            <button key={m} className={`chip ${currentVentMode === m ? "on" : ""}`} onClick={() => setVentMode(m)}>
               {m}
             </button>
           ))}
