@@ -128,6 +128,9 @@ export const api = {
   deleteCase: (id: string) => request<{ ok: true }>(`/cases/${id}`, "DELETE"),
   sendSheetPdf: (payload: { pdfBase64: string; ia: string; version: number; signedAt?: string }) =>
     request<{ ok: true; to: string; subject: string }>("/mail/send", "POST", payload),
+  visionStatus: () => request<{ claudeAvailable: boolean; model: string }>("/vision/status"),
+  visionImport: (payload: { imageBase64: string; mimeType: string }) =>
+    request<{ readings: { hora: string; parametro: string; valor: number; unidad?: string }[] }>("/vision/import", "POST", payload),
 
   listUsers: () => request<{ users: AdminUserRow[] }>("/users"),
   createUser: (u: { username: string; displayName: string; role: string; location?: string; password: string }) =>

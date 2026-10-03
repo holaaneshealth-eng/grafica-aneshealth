@@ -156,7 +156,7 @@ export interface VitalsRecord {
   id: string;
   at: string;
   values: Record<string, number>;
-  source: "manual" | "device";
+  source: "manual" | "device" | "foto"; // "foto" = importado desde foto del monitor
 }
 
 export interface IncidentRecord {

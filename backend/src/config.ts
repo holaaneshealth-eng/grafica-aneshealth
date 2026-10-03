@@ -60,6 +60,12 @@ export const config = {
     // Destinatario del correo con la imagen adjunta.
     to: process.env.MAIL_TO ?? "adrian.fernandez@ext.vithas.es",
   },
+  // Visión: importar constantes desde una foto del monitor. API de Claude (Anthropic).
+  vision: {
+    anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
+    // Haiku 4.5: barato y suficiente para leer la tabla de tendencias del monitor.
+    model: process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5",
+  },
   // Bloqueo por intentos fallidos
   maxFailedLogins: parseInt(process.env.MAX_FAILED_LOGINS ?? "5", 10),
   lockoutMinutes: parseInt(process.env.LOCKOUT_MINUTES ?? "15", 10),
