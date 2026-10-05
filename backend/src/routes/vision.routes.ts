@@ -20,17 +20,20 @@ const bodySchema = z.object({
 });
 
 // Vocabulario de parámetros que el programa entiende (debe coincidir con monitoring.ts).
-const KNOWN = ["FC", "TAS", "TAD", "TAM", "SPO2", "ETCO2", "TEMP", "BIS", "VT", "FR", "PEEP", "FIO2"];
+const KNOWN = ["FC", "TAS", "TAD", "TAM", "SPO2", "ETCO2", "FICO2", "FR", "PVC", "BIS", "TEMP", "VT", "PEEP", "FIO2"];
 
-const PROMPT = `Eres un lector de pantallas de monitor de anestesia (monitores Mindray), en su vista de TENDENCIAS TABULARES (una columna por hora, normalmente cada 5 minutos).
-Devuelve EXCLUSIVAMENTE un array JSON (sin texto, sin markdown, sin explicaciones). Cada elemento:
-{"hora":"HH:MM","parametro":"CODIGO","valor":numero,"unidad":"texto"}
+const PROMPT = `Eres un lector de pantallas de monitor de anestesia (Mindray ePM) en su vista de TENDENCIAS TABULARES (una columna por hora, normalmente cada 5 minutos).
+Devuelve EXCLUSIVAMENTE un objeto JSON (sin texto, sin markdown, sin explicaciones):
+{"fecha":"YYYY-MM-DD" o null, "lecturas":[{"hora":"HH:MM","parametro":"CODIGO","valor":numero,"unidad":"texto"}]}
 Reglas:
-- Usa EXACTAMENTE estos códigos de parámetro cuando corresponda: ${KNOWN.join(", ")}.
-- Tensión arterial (invasiva o no invasiva): sistólica -> TAS, diastólica -> TAD, media -> TAM.
+- "fecha": la fecha de la cabecera del monitor si aparece; si no, null.
+- Usa EXACTAMENTE estos códigos cuando corresponda: ${KNOWN.join(", ")}.
+- Tensión arterial, invasiva o no invasiva (etiquetas Mindray: PANI, PNI, NIBP, PA, ART, ABP): sistólica -> TAS, diastólica -> TAD, media (entre paréntesis) -> TAM.
+- Temperatura (T1, T2) -> TEMP. Frecuencia respiratoria (FR) -> FR. CO2 espirado -> ETCO2; CO2 inspirado -> FICO2. Presión venosa central (PVC) -> PVC. BIS -> BIS.
+- IGNORA (no las incluyas): la "FP" (frecuencia de pulso, duplica la FC) y los subtítulos tipo "Origen: SpO2" y el sello de hora de la medición dentro de la celda.
 - Incluye una lectura SOLO si puedes leerla con seguridad. Si dudas de un valor, OMÍTELO.
-- "valor" debe ser numérico (usa punto decimal). "hora" en formato 24h HH:MM tal y como aparece en el monitor.
-- Si ves un parámetro que NO está en la lista de códigos, inclúyelo igualmente con su etiqueta tal cual en "parametro" (el programa decidirá qué hacer).
+- "valor" numérico (punto decimal). "hora" en 24h HH:MM tal como aparece.
+- Si ves un parámetro que NO está en la lista, inclúyelo con su etiqueta tal cual en "parametro".
 - No inventes columnas ni valores que no estén en la imagen.`;
 
 export interface VisionReading {
@@ -40,14 +43,16 @@ export interface VisionReading {
   unidad?: string;
 }
 
-function extractJsonArray(text: string): unknown {
+function extractJson(text: string): unknown {
   let t = text.trim();
-  // Quita vallas de código ```json ... ```
   if (t.startsWith("```")) t = t.replace(/^```[a-zA-Z]*\s*/, "").replace(/```\s*$/, "").trim();
-  // Recorta al primer '[' y último ']' por si el modelo añadió texto.
-  const a = t.indexOf("[");
-  const b = t.lastIndexOf("]");
-  if (a >= 0 && b > a) t = t.slice(a, b + 1);
+  // Prioriza un objeto {...}; si no, un array [...].
+  const ob = t.indexOf("{");
+  const cb = t.lastIndexOf("}");
+  const oa = t.indexOf("[");
+  const ca = t.lastIndexOf("]");
+  if (ob >= 0 && cb > ob && (oa < 0 || ob < oa)) return JSON.parse(t.slice(ob, cb + 1));
+  if (oa >= 0 && ca > oa) return JSON.parse(t.slice(oa, ca + 1));
   return JSON.parse(t);
 }
 
@@ -114,14 +119,16 @@ visionRouter.post("/import", async (req, res, next) => {
     const text = (result.content ?? []).filter((c) => c.type === "text").map((c) => c.text ?? "").join("\n");
 
     let readings: VisionReading[] = [];
+    let fecha: string | null = null;
     try {
-      const arr = extractJsonArray(text);
-      if (Array.isArray(arr)) {
-        readings = arr
-          .map((r) => r as Record<string, unknown>)
-          .filter((r) => r && typeof r.hora === "string" && typeof r.parametro === "string" && r.valor != null && isFinite(Number(r.valor)))
-          .map((r) => ({ hora: String(r.hora), parametro: String(r.parametro).trim(), valor: Number(r.valor), unidad: r.unidad != null ? String(r.unidad) : undefined }));
-      }
+      const parsed = extractJson(text) as unknown;
+      const obj = parsed as { fecha?: unknown; lecturas?: unknown } | null;
+      const arr = Array.isArray(parsed) ? parsed : Array.isArray(obj?.lecturas) ? (obj!.lecturas as unknown[]) : [];
+      if (obj && !Array.isArray(parsed) && typeof obj.fecha === "string") fecha = obj.fecha;
+      readings = arr
+        .map((r) => r as Record<string, unknown>)
+        .filter((r) => r && typeof r.hora === "string" && typeof r.parametro === "string" && r.valor != null && isFinite(Number(r.valor)))
+        .map((r) => ({ hora: String(r.hora), parametro: String(r.parametro).trim(), valor: Number(r.valor), unidad: r.unidad != null ? String(r.unidad) : undefined }));
     } catch {
       // eslint-disable-next-line no-console
       console.error("[vision] no se pudo interpretar la respuesta del modelo");
@@ -140,7 +147,7 @@ visionRouter.post("/import", async (req, res, next) => {
       success: true,
     });
     // La foto NO se guarda: queda solo en memoria durante la petición.
-    res.json({ readings });
+    res.json({ readings, fecha });
   } catch (err) {
     next(err);
   }

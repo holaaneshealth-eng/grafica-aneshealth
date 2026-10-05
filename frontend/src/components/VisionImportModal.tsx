@@ -41,6 +41,7 @@ export function VisionImportModal({ cs, onClose, onDone }: Props) {
   const [shiftMin, setShiftMin] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [dateWarn, setDateWarn] = useState<string | null>(null);
   const [customFor, setCustomFor] = useState<Record<string, boolean>>({});
   const [claudeAvailable, setClaudeAvailable] = useState(false);
   const [engine, setEngine] = useState<EngineId>(() => (localStorage.getItem(ENGINE_KEY) as EngineId) || "tesseract");
@@ -72,17 +73,24 @@ export function VisionImportModal({ cs, onClose, onDone }: Props) {
     try {
       const dataUrl = await readAsDataURL(file);
       let got: VisionReading[] = [];
+      let detectedDate: string | null = null;
       if (engine === "claude") {
         const r = await api.visionImport({ imageBase64: dataUrl, mimeType: file.type || "image/jpeg" });
         got = r.readings;
+        detectedDate = r.fecha ?? null;
       } else {
         const canvas = await preprocessDataUrl(dataUrl);
         const eng = engine === "paddle" ? paddleEngine : tesseractEngine;
         const result = await eng.recognize(canvas, (p) => setProgress(p));
         const parsed = parseTrendTable(result.words);
         got = parsed.readings;
+        detectedDate = parsed.detectedDate ?? null;
         if (parsed.columns < 2) setNote("No se ha reconocido la rejilla de horas. Asegúrate de fotografiar la vista de tendencias tabulares, de frente y sin reflejos.");
       }
+      // Aviso si la fecha de la cabecera del monitor no coincide con la del caso
+      // (las columnas se fechan con la del caso).
+      const caseDate = new Date(cs.createdAt).toLocaleDateString("sv-SE"); // YYYY-MM-DD local
+      setDateWarn(detectedDate && detectedDate !== caseDate ? `La fecha del monitor (${detectedDate}) no coincide con la del caso (${caseDate}). Las columnas se fechan con la del caso; revisa las horas.` : null);
       setReadings(got);
       setItems(buildReview(got, cs, 0));
       setShiftMin(0);
@@ -185,6 +193,7 @@ export function VisionImportModal({ cs, onClose, onDone }: Props) {
 
       {phase === "review" && (
         <>
+          {dateWarn && <div className="alert danger">{dateWarn}</div>}
           {note && <div className="alert">{note}</div>}
           <div className="row" style={{ alignItems: "flex-end" }}>
             <div className="field" style={{ flex: 1 }}>

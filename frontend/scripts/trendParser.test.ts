@@ -1,7 +1,7 @@
 import type { OcrWord } from "../src/vision/ocrTypes";
 import { parseTrendTable, classifyLabel } from "../src/vision/trendTableParser";
 
-function w(text: string, xc: number, yc: number, half = 12): OcrWord {
+function w(text: string, xc: number, yc: number, half = 14): OcrWord {
   return { text, x0: xc - half, x1: xc + half, y0: yc - 6, y1: yc + 6 };
 }
 function assert(c: boolean, m: string) {
@@ -9,27 +9,33 @@ function assert(c: boolean, m: string) {
   if (!c) process.exitCode = 1;
 }
 
-// Rejilla sintética: cabecera de horas + filas FC, NIBP (TA), SpO2, VT.
+// Clasificación de etiquetas Mindray
+assert(classifyLabel("FP").kind === "ignore", "FP se ignora (duplica la FC)");
+assert(classifyLabel("Origen: SpO2").kind === "ignore", "subtítulo 'Origen: SpO2' se ignora");
+assert(classifyLabel("PANI").kind === "bp" && classifyLabel("PA").kind === "bp" && classifyLabel("ART").kind === "bp", "PANI/PA/ART -> tensión");
+assert(classifyLabel("T1").code === "TEMP" && classifyLabel("T2").code === "TEMP", "T1/T2 -> TEMP");
+assert(classifyLabel("PVC").code === "PVC" && classifyLabel("EtCO2").code === "ETCO2" && classifyLabel("FR").code === "FR", "PVC/EtCO2/FR");
+
+// Rejilla sintética tipo Mindray ePM
 const words: OcrWord[] = [
-  w("08:00", 200, 10), w("08:05", 300, 10), w("08:10", 400, 10),
-  w("HR", 20, 50), w("70", 200, 50), w("72", 300, 50), w("75", 400, 50),
-  w("NIBP", 22, 90), w("125/70", 200, 90), w("(88)", 226, 90), w("120/68", 300, 90), w("(84)", 326, 90),
-  w("SpO2", 25, 130), w("98", 200, 130), w("99", 300, 130), w("97", 400, 130),
-  w("VT", 20, 170), w("480", 200, 170), w("480", 300, 170), w("500", 400, 170),
+  w("2026-10-05", 60, 6, 40),
+  w("07:40", 200, 30), w("07:45", 300, 30), w("07:50", 400, 30),
+  w("FC", 20, 70), w("60", 200, 70), w("Origen:SpO2", 250, 70, 30), w("70", 300, 70), w("65", 400, 70),
+  w("SpO2", 20, 110), w("100", 200, 110), w("84", 300, 110), w("95", 400, 110),
+  w("PANI", 20, 150), w("157/87", 200, 150), w("(99)", 226, 150), w("07:39", 205, 162), w("--", 300, 150), w("--", 400, 150),
+  w("FP", 20, 190), w("60", 200, 190), w("70", 300, 190), w("65", 400, 190),
+  w("T1", 20, 230), w("18.0", 200, 230), w("18.1", 300, 230), w("18.1", 400, 230),
+  w("PVC", 20, 270), w("8", 200, 270), w("9", 300, 270), w("7", 400, 270),
 ];
 
-assert(classifyLabel("NIBP").kind === "bp", "NIBP se clasifica como tensión arterial");
-assert(classifyLabel("HR").code === "FC", "HR -> FC");
-assert(classifyLabel("SpO2").code === "SPO2", "SpO2 -> SPO2");
-
 const r = parseTrendTable(words);
-assert(r.columns === 3, `detecta 3 columnas horarias (${r.columns})`);
-
+assert(r.detectedDate === "2026-10-05", `detecta la fecha de cabecera (${r.detectedDate})`);
 const find = (p: string, h: string) => r.readings.find((x) => x.parametro === p && x.hora === h)?.valor;
-assert(find("FC", "08:00") === 70 && find("FC", "08:10") === 75, "FC en sus columnas");
-assert(find("TAS", "08:00") === 125 && find("TAD", "08:00") === 70 && find("TAM", "08:00") === 88, "TA 08:00 = 125/70 (88) -> TAS/TAD/TAM");
-assert(find("TAS", "08:05") === 120 && find("TAM", "08:05") === 84, "TA 08:05 desglosada");
-assert(find("SPO2", "08:05") === 99, "SpO2 en su columna");
-assert(find("VT", "08:10") === 500, "VT leído (regla de fijados se aplica al volcar, no al leer)");
+assert(find("FC", "07:40") === 60 && find("FC", "07:50") === 65, "FC leída (subtítulo 'Origen' descartado)");
+assert(find("TAS", "07:40") === 157 && find("TAD", "07:40") === 87 && find("TAM", "07:40") === 99, "PANI 157/87 (99) -> TAS/TAD/TAM (sello 07:39 descartado)");
+assert(find("TEMP", "07:40") === 18 && find("TEMP", "07:45") === 18.1, "T1 -> TEMP");
+assert(find("PVC", "07:50") === 7, "PVC leída");
+assert(!r.readings.some((x) => x.parametro === "FP"), "FP NO se vuelca");
+assert(!r.readings.some((x) => /origen/i.test(x.parametro) || x.parametro === "07:39"), "ni 'Origen' ni el sello de hora generan lecturas");
 
 console.log(process.exitCode ? "\nRESULTADO: con fallos" : "\nRESULTADO: todo OK");

@@ -3,7 +3,13 @@
 import type { CaseState, VitalsRecord } from "./events";
 import { findParam } from "./monitoring";
 
-export const KNOWN_CODES = ["FC", "TAS", "TAD", "TAM", "SPO2", "ETCO2", "TEMP", "BIS", "VT", "FR", "PEEP", "FIO2"];
+export const KNOWN_CODES = ["FC", "TAS", "TAD", "TAM", "SPO2", "ETCO2", "TEMP", "BIS", "VT", "FR", "PEEP", "FIO2", "PVC"];
+
+/** Parámetros que se ignoran al volcar (vengan del OCR o de Claude). */
+export function isIgnoredParam(raw: string): boolean {
+  const up = (raw ?? "").trim().toUpperCase();
+  return up === "FP" || /ORIGEN/i.test(raw ?? "");
+}
 // Parámetros "fijados" por el anestesiólogo: se importan solo cuando cambian.
 export const FIXED_CODES = ["VT", "FR", "PEEP", "FIO2"];
 
@@ -18,9 +24,11 @@ const SYNONYMS: Record<string, string> = {
   TEMPERATURA: "TEMP",
   "T°": "TEMP",
   Tª: "TEMP",
+  T1: "TEMP",
+  T2: "TEMP",
   "FIO₂": "FIO2",
-  VC: "VT",
   "FR.": "FR",
+  CVP: "PVC",
 };
 
 const BUCKET_MS = 5 * 60 * 1000;
@@ -94,6 +102,7 @@ export function buildReview(readings: VisionReading[], cs: CaseState, shiftMin =
   const { manual, photo } = existingIndex(cs.vitals);
   const items: ReviewItem[] = [];
   readings.forEach((r, i) => {
+    if (isIgnoredParam(r.parametro)) return; // FP / subtítulos no se vuelcan
     const epoch = timeToEpoch(r.hora, cs.createdAt, shiftMin);
     if (epoch == null) return;
     const bucketMs = bucketOf(epoch);
