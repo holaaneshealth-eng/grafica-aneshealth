@@ -1,33 +1,39 @@
 import type { OcrEngine, OcrResult, OcrWord } from "./ocrTypes";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// PaddleOCR (versión web). La BIBLIOTECA viene del paquete npm (empaquetada y servida
-// por nosotros) y los MODELOS se sirven desde NUESTRO origen (public/ocr/paddle), nunca
-// de un CDN. Se cargan solo al elegir este motor (import dinámico = carga diferida).
+// PaddleOCR (versión web). La BIBLIOTECA y los MODELOS se sirven desde NUESTRO origen
+// (public/ocr/paddle), nunca de un CDN. Se cargan solo al elegir este motor (carga
+// diferida mediante inyección de <script>).
+//
+// IMPORTANTE: NO importamos el paquete con `import("@paddlejs-models/ocr")`. Ese paquete
+// es un bundle UMD de webpack; cuando Vite/esbuild lo transforma de CommonJS a ESM deja
+// referencias libres a variables de Node (`module`, `global`, ...). En iOS Safari eso
+// provoca "Can't find variable: module". El bundle UMD está pensado para ejecutarse como
+// <script> clásico (detecta el navegador vía `this`), así que lo cargamos así y leemos
+// `window.paddlejs.ocr`. Es exactamente el camino que sí funciona.
 let paddle: any = null;
 
 const MODELS_BASE = `${import.meta.env.BASE_URL}ocr/paddle/`;
+const PADDLE_SRC = `${MODELS_BASE}paddle-ocr.umd.js`;
 
-// PaddleJS (y sus dependencias: paddlejs-core, opencv) fueron escritas asumiendo
-// variables globales de Node (`global`, `process`). Al empaquetarlas para el navegador
-// quedan como referencias libres: en Safari eso da "Can't find variable: global" y en
-// Chrome "global is not defined". Definimos equivalentes mínimos ANTES de cargar el
-// módulo. Es inofensivo si ya existen.
-function ensureBrowserGlobals(): void {
-  const g = globalThis as any;
-  if (typeof g.global === "undefined") g.global = g;
-  if (typeof g.process === "undefined") {
-    g.process = {
-      env: {},
-      argv: [] as string[],
-      platform: "browser",
-      version: "",
-      versions: {} as Record<string, string>,
-      nextTick: (fn: (...a: any[]) => void, ...args: any[]) => Promise.resolve().then(() => fn(...args)),
+// Carga diferida del bundle UMD mediante <script>. Reutiliza el que ya exista.
+let scriptPromise: Promise<void> | null = null;
+function loadPaddleScript(): Promise<void> {
+  if ((window as any).paddlejs?.ocr) return Promise.resolve();
+  if (scriptPromise) return scriptPromise;
+  scriptPromise = new Promise<void>((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = PADDLE_SRC;
+    s.async = true;
+    s.dataset.ocr = "paddle";
+    s.onload = () => resolve();
+    s.onerror = () => {
+      scriptPromise = null;
+      reject(new Error(`no se pudo descargar la librería (${PADDLE_SRC})`));
     };
-  } else if (!g.process.env) {
-    g.process.env = {};
-  }
+    document.head.appendChild(s);
+  });
+  return scriptPromise;
 }
 
 // PaddleJS trae las URLs de los modelos fijas a un CDN (bcebos). Interceptamos fetch
@@ -55,14 +61,16 @@ async function withLocalModels<T>(fn: () => Promise<T>): Promise<T> {
 
 async function loadPaddle(): Promise<any> {
   if (paddle) return paddle;
-  ensureBrowserGlobals();
-  let mod: any;
   try {
-    mod = await import("@paddlejs-models/ocr");
+    await loadPaddleScript();
   } catch (e: any) {
     throw new Error(`No se pudo cargar PaddleOCR: ${e?.message || e}`);
   }
-  const ocr = mod.default ?? mod;
+  const ns = (window as any).paddlejs?.ocr ?? (window as any).paddlejs;
+  const ocr = ns?.default ?? ns;
+  if (!ocr || typeof ocr.init !== "function") {
+    throw new Error("No se pudo cargar PaddleOCR: la librería no expuso el módulo de OCR.");
+  }
   try {
     await withLocalModels(() => ocr.init());
   } catch (e: any) {

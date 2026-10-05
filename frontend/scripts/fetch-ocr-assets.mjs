@@ -66,7 +66,12 @@ async function paddleModel(name, baseUrl) {
 }
 
 async function paddle() {
-  console.log("PaddleOCR (modelos):");
+  console.log("PaddleOCR (librería + modelos):");
+  // La librería es un bundle UMD; se sirve como <script> clásico desde nuestro origen
+  // (ver paddleEngine.ts). Así evitamos que Vite la transforme y rompa en iOS Safari.
+  await mkdir(path.join(OUT, "paddle"), { recursive: true });
+  await copyFile(path.join(NM, "@paddlejs-models/ocr/lib/index.js"), path.join(OUT, "paddle", "paddle-ocr.umd.js"));
+  console.log("  = librería UMD copiada (paddle-ocr.umd.js)");
   const base = "https://paddlejs.bj.bcebos.com/models/fuse/ocr/";
   await paddleModel("det", base + "ch_PP-OCRv2_det_fuse_activation/");
   await paddleModel("rec", base + "ch_PP-OCRv2_rec_fuse_activation/");
