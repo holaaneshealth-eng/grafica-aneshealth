@@ -153,6 +153,15 @@ function applyEvent(state: CaseState, e: BaseEvent): CaseState {
       return { ...state, ventModes: [...(state.ventModes ?? []), p as unknown as VentModeRecord] };
     case "SHEET_EMAILED":
       return { ...state, emailSends: [...(state.emailSends ?? []), p as unknown as EmailSendRecord] };
+    case "MONITOR_MODE_SET":
+      return { ...state, monitorVia: (p.via as CaseState["monitorVia"]) ?? null };
+    case "MONITOR_PHOTO_ADDED": {
+      const rec = { id: p.id as string, at: p.at as string, mime: (p.mime as string) ?? "image/jpeg", byteSize: (p.byteSize as number) ?? 0, analyzed: (p.analyzed as boolean) ?? false };
+      if ((state.monitorPhotos ?? []).some((x) => x.id === rec.id)) return state; // idempotente
+      return { ...state, monitorPhotos: [...(state.monitorPhotos ?? []), rec] };
+    }
+    case "MONITOR_PHOTO_REMOVED":
+      return { ...state, monitorPhotos: (state.monitorPhotos ?? []).filter((x) => x.id !== (p.id as string)) };
     case "VITALS_RECORDED":
       return { ...state, vitals: [...state.vitals, p as unknown as VitalsRecord] };
     case "VITALS_UPDATED":

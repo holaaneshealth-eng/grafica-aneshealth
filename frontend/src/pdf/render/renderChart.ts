@@ -391,7 +391,7 @@ function drawFooter(doc: jsPDF, model: ChartModel, pageIdx: number, total: numbe
 
   const legend =
     milestoneLegend(model.milestones.map((m) => m.label)) +
-    "   ·   celda sombreada = fuera de rango   ·   barra = perfusión   ·   línea fina = valor mantenido";
+    "   ·   TA roja (⟂·) = no invasiva   ·   TA azul (▲▼□) = invasiva (PA)   ·   celda sombreada = fuera de rango   ·   barra = perfusión   ·   línea fina = valor mantenido";
   doc.setFontSize(FONT_AXIS_PT - 0.5);
   doc.setTextColor(90, 90, 90);
   const maxW = A4_LANDSCAPE.w - 2 * MARGIN - 42;
@@ -515,6 +515,26 @@ function drawHemoBand(
     if (s.map != null) {
       doc.setFillColor(230, 160, 40);
       doc.circle(x, yFor(s.map), 0.7, "F");
+    }
+  }
+  // PA invasiva: barra AZUL con extremos en diamante + cuadrado hueco para la media
+  // (marcador distinto a la TA no invasiva, explicado en la leyenda del pie).
+  for (const s of model.hemo.ibp) {
+    if (s.at < w.start || s.at >= w.end) continue;
+    const x = xOf(s.at, w, plotLeft, colWidth);
+    doc.setDrawColor(40, 90, 200);
+    doc.setFillColor(40, 90, 200);
+    doc.setLineWidth(0.6);
+    if (s.sys != null && s.dia != null) {
+      doc.line(x, yFor(s.sys), x, yFor(s.dia));
+      const d = 0.9;
+      doc.triangle(x - d, yFor(s.sys) + d, x + d, yFor(s.sys) + d, x, yFor(s.sys) - d, "F"); // ▲ sistólica
+      doc.triangle(x - d, yFor(s.dia) - d, x + d, yFor(s.dia) - d, x, yFor(s.dia) + d, "F"); // ▼ diastólica
+    }
+    if (s.map != null) {
+      const r = 0.8;
+      doc.setLineWidth(0.4);
+      doc.rect(x - r, yFor(s.map) - r, r * 2, r * 2, "S"); // □ media invasiva (hueco)
     }
   }
   // FC: línea

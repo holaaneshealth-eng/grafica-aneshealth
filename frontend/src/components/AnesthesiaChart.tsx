@@ -15,7 +15,7 @@ const PALETTE = ["#0ea5e9", "#f59e0b", "#22c55e", "#ec4899", "#8b5cf6", "#14b8a6
 
 // Constantes representadas en la gráfica (se excluyen de la tabla seriada).
 // SpO2 se retira de la gráfica y pasa a la cronología de constantes.
-export const CHARTED = new Set(["FC", "TAS", "TAD", "TAM"]);
+export const CHARTED = new Set(["FC", "TAS", "TAD", "TAM", "PAIS", "PAID", "PAIM"]);
 
 // Abreviaturas de hitos frecuentes para rotularlos de forma legible en la gráfica.
 const MS_CODES: { match: RegExp; code: string }[] = [
@@ -108,7 +108,7 @@ export function AnesthesiaChart({ cs, light, big, hideLegend, onTimeClick }: Pro
     };
     const vitals = allVitals.filter((v) => inRange(v.at));
     let maxVal = 160;
-    vitals.forEach((v) => ["TAS", "TAM", "FC", "TAD"].forEach((k) => {
+    vitals.forEach((v) => ["TAS", "TAM", "FC", "TAD", "PAIS", "PAIM"].forEach((k) => {
       const nn = v.values[k];
       if (typeof nn === "number" && nn > maxVal) maxVal = nn;
     }));
@@ -198,6 +198,21 @@ export function AnesthesiaChart({ cs, light, big, hideLegend, onTimeClick }: Pro
             els.push(<line key="c2" x1={x - cap} y1={Y(tad)} x2={x + cap} y2={Y(tad)} stroke={col("TAD", light)} strokeWidth={1.6 * sw} />);
           }
           if (typeof v.values.TAM === "number") els.push(<circle key="tam" cx={x} cy={Y(v.values.TAM)} r={2.7 * ss} fill={col("TAM", light)} />);
+          // PA invasiva: barra azul con extremos en triángulo + cuadrado hueco (media).
+          const ibpColor = light ? "#2563eb" : "#60a5fa";
+          const pais = v.values.PAIS;
+          const paid = v.values.PAID;
+          const paim = v.values.PAIM;
+          const t = 3 * ss;
+          if (typeof pais === "number" && typeof paid === "number") {
+            els.push(<line key="ibp" x1={x} y1={Y(paid)} x2={x} y2={Y(pais)} stroke={ibpColor} strokeWidth={1.6 * sw} />);
+            els.push(<path key="ibps" d={`M${x} ${Y(pais) - t}L${x + t} ${Y(pais)}L${x - t} ${Y(pais)}Z`} fill={ibpColor} />);
+            els.push(<path key="ibpd" d={`M${x} ${Y(paid) + t}L${x + t} ${Y(paid)}L${x - t} ${Y(paid)}Z`} fill={ibpColor} />);
+          }
+          if (typeof paim === "number") {
+            const r = 2.4 * ss;
+            els.push(<rect key="ibpm" x={x - r} y={Y(paim) - r} width={r * 2} height={r * 2} fill="none" stroke={ibpColor} strokeWidth={1.4 * sw} />);
+          }
           if (typeof v.values.FC === "number") {
             const y = Y(v.values.FC);
             const d = 3.6 * ss;
@@ -263,8 +278,9 @@ export function AnesthesiaChart({ cs, light, big, hideLegend, onTimeClick }: Pro
       {/* Leyenda en una sola línea: símbolos + abreviaturas de hitos (HTML, no se escala) */}
       {!hideLegend && (
         <div className="anes-legend anes-legend-1">
-          <span style={{ color: col("TAS", light) }}>▮ TA</span>
+          <span style={{ color: col("TAS", light) }}>▮ TA (no invasiva)</span>
           <span style={{ color: col("TAM", light) }}>● TAM</span>
+          <span style={{ color: light ? "#2563eb" : "#60a5fa" }}>▲▼□ PA (invasiva)</span>
           <span style={{ color: col("FC", light) }}>◆ FC</span>
           <span style={{ color: light ? "#0e7c7b" : "#2dd4bf" }}>┊ hitos</span>
           <span style={{ color: "#ef4444" }}>┊ incid.</span>

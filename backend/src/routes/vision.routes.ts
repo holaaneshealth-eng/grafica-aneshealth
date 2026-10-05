@@ -2,15 +2,16 @@ import { Router } from "express";
 import { z } from "zod";
 import { config } from "../config";
 import { authGuard, csrfGuard, requirePasswordChanged } from "../middleware";
-import { audit } from "../db";
+import { audit, dbFeatures } from "../db";
 
 export const visionRouter = Router();
 
 visionRouter.use(authGuard, csrfGuard, requirePasswordChanged);
 
-// Indica si el motor de pago (Claude) está disponible (hay clave configurada).
+// Estado del registro por foto: Claude (Vía 2, requiere clave) y fotos (Vía 1, requiere
+// que la tabla case_photos se haya creado correctamente).
 visionRouter.get("/status", (_req, res) => {
-  res.json({ claudeAvailable: !!config.vision.anthropicApiKey, model: config.vision.model });
+  res.json({ claudeAvailable: !!config.vision.anthropicApiKey, model: config.vision.model, photosEnabled: dbFeatures.photos });
 });
 
 const bodySchema = z.object({
@@ -20,7 +21,7 @@ const bodySchema = z.object({
 });
 
 // Vocabulario de parámetros que el programa entiende (debe coincidir con monitoring.ts).
-const KNOWN = ["FC", "TAS", "TAD", "TAM", "SPO2", "ETCO2", "FICO2", "FR", "PVC", "BIS", "TEMP", "VT", "PEEP", "FIO2"];
+const KNOWN = ["FC", "TAS", "TAD", "TAM", "PAIS", "PAID", "PAIM", "SPO2", "ETCO2", "FICO2", "FR", "PVC", "BIS", "TEMP", "VT", "PEEP", "FIO2", "PPICO", "CAM"];
 
 const PROMPT = `Eres un lector de pantallas de monitor de anestesia (Mindray ePM) en su vista de TENDENCIAS TABULARES (una columna por hora, normalmente cada 5 minutos).
 Devuelve EXCLUSIVAMENTE un objeto JSON (sin texto, sin markdown, sin explicaciones):
@@ -28,8 +29,9 @@ Devuelve EXCLUSIVAMENTE un objeto JSON (sin texto, sin markdown, sin explicacion
 Reglas:
 - "fecha": la fecha de la cabecera del monitor si aparece; si no, null.
 - Usa EXACTAMENTE estos códigos cuando corresponda: ${KNOWN.join(", ")}.
-- Tensión arterial, invasiva o no invasiva (etiquetas Mindray: PANI, PNI, NIBP, PA, ART, ABP): sistólica -> TAS, diastólica -> TAD, media (entre paréntesis) -> TAM.
-- Temperatura (T1, T2) -> TEMP. Frecuencia respiratoria (FR) -> FR. CO2 espirado -> ETCO2; CO2 inspirado -> FICO2. Presión venosa central (PVC) -> PVC. BIS -> BIS.
+- Tensión arterial NO invasiva (etiquetas Mindray: PANI, PNI, NIBP): sistólica -> TAS, diastólica -> TAD, media (entre paréntesis) -> TAM.
+- Tensión arterial INVASIVA / arterial (etiquetas Mindray: PA, ART, ABP, IBP): sistólica -> PAIS, diastólica -> PAID, media (entre paréntesis) -> PAIM.
+- Temperatura (T1, T2) -> TEMP. Frecuencia respiratoria (FR) -> FR. CO2 espirado -> ETCO2; CO2 inspirado -> FICO2. Presión venosa central (PVC) -> PVC. BIS -> BIS. Presión pico de la vía aérea -> PPICO. CAM/MAC del halogenado -> CAM.
 - IGNORA (no las incluyas): la "FP" (frecuencia de pulso, duplica la FC) y los subtítulos tipo "Origen: SpO2" y el sello de hora de la medición dentro de la celda.
 - Incluye una lectura SOLO si puedes leerla con seguridad. Si dudas de un valor, OMÍTELO.
 - "valor" numérico (punto decimal). "hora" en 24h HH:MM tal como aparece.

@@ -3,7 +3,7 @@
 import type { CaseState, VitalsRecord } from "./events";
 import { findParam } from "./monitoring";
 
-export const KNOWN_CODES = ["FC", "TAS", "TAD", "TAM", "SPO2", "ETCO2", "TEMP", "BIS", "VT", "FR", "PEEP", "FIO2", "PVC"];
+export const KNOWN_CODES = ["FC", "TAS", "TAD", "TAM", "PAIS", "PAID", "PAIM", "SPO2", "ETCO2", "TEMP", "BIS", "VT", "FR", "PEEP", "FIO2", "PVC", "PPICO", "CAM"];
 
 /** Parámetros que se ignoran al volcar (vengan del OCR o de Claude). */
 export function isIgnoredParam(raw: string): boolean {
@@ -29,6 +29,10 @@ const SYNONYMS: Record<string, string> = {
   "FIO₂": "FIO2",
   "FR.": "FR",
   CVP: "PVC",
+  MAC: "CAM",
+  PPEAK: "PPICO",
+  PINSP: "PPICO",
+  PICO: "PPICO",
 };
 
 const BUCKET_MS = 5 * 60 * 1000;

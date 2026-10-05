@@ -147,6 +147,39 @@ export async function migrate(): Promise<void> {
   await pool.query(SCHEMA);
 }
 
+// Estado de funciones opcionales que dependen de una migración que puede fallar sin
+// tumbar el servidor. `photos` controla la Vía 1 (fotos del monitor).
+export const dbFeatures = { photos: false };
+
+// Esquema de la tabla de fotos del monitor (Vía 1). Idempotente (IF NOT EXISTS).
+// Se migra APARTE y de forma NO fatal: si falla, el servidor arranca igualmente y la
+// Vía 1 queda desactivada (dbFeatures.photos = false), registrándose el error.
+const CASE_PHOTOS_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS case_photos (
+    id TEXT PRIMARY KEY,
+    case_id TEXT NOT NULL REFERENCES cases(case_id) ON DELETE CASCADE,
+    taken_at TEXT NOT NULL,
+    mime TEXT NOT NULL,
+    byte_size INTEGER NOT NULL,
+    data BYTEA NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_case_photos_case ON case_photos(case_id, taken_at);
+`;
+
+export async function migrateCasePhotos(): Promise<void> {
+  try {
+    await pool.query(CASE_PHOTOS_SCHEMA);
+    dbFeatures.photos = true;
+    // eslint-disable-next-line no-console
+    console.log("[db] tabla case_photos lista (Vía 1 de fotos activada).");
+  } catch (err) {
+    dbFeatures.photos = false;
+    // eslint-disable-next-line no-console
+    console.error("[db] no se pudo crear case_photos; la Vía 1 (fotos del monitor) queda DESACTIVADA:", (err as Error).message);
+  }
+}
+
 export interface AuditInput {
   userId?: string | null;
   username?: string | null;

@@ -131,6 +131,58 @@ export const cases = {
   async expired(cutoff: string): Promise<CaseFull[]> {
     return (await query<CaseFull>(`SELECT * FROM cases WHERE last_activity < $1`, [cutoff])).rows;
   },
+  // Casos BORRABLES por retención: solo los FIRMADOS y ya ENVIADOS por correo (ok) para su
+  // firma vigente, y pasado el plazo. Se EXCLUYEN así los casos sin firmar y los firmados
+  // pendientes de envío (se conservan hasta enviarse / borrado manual).
+  async purgeable(cutoff: string): Promise<CaseFull[]> {
+    return (
+      await query<CaseFull>(
+        `SELECT c.* FROM cases c
+         WHERE c.last_activity < $1
+           AND c.status = 'signed'
+           AND c.signed_at IS NOT NULL
+           AND EXISTS (
+             SELECT 1 FROM events e
+             WHERE e.case_id = c.case_id
+               AND e.type = 'SHEET_EMAILED'
+               AND (e.payload::jsonb ->> 'ok') = 'true'
+               AND e.occurred_at >= c.signed_at
+           )`,
+        [cutoff],
+      )
+    ).rows;
+  },
+};
+
+export interface CasePhotoMeta {
+  id: string;
+  taken_at: string;
+  mime: string;
+  byte_size: number;
+}
+
+export const casePhotos = {
+  async insert(p: { id: string; caseId: string; takenAt: string; mime: string; byteSize: number; data: Buffer; createdAt: string }): Promise<void> {
+    await query(
+      `INSERT INTO case_photos (id, case_id, taken_at, mime, byte_size, data, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [p.id, p.caseId, p.takenAt, p.mime, p.byteSize, p.data, p.createdAt],
+    );
+  },
+  async listMeta(caseId: string): Promise<CasePhotoMeta[]> {
+    return (
+      await query<CasePhotoMeta>(
+        `SELECT id, taken_at, mime, byte_size FROM case_photos WHERE case_id=$1 ORDER BY taken_at ASC`,
+        [caseId],
+      )
+    ).rows;
+  },
+  async get(id: string): Promise<{ data: Buffer; mime: string; case_id: string } | undefined> {
+    return (await query<{ data: Buffer; mime: string; case_id: string }>(`SELECT data, mime, case_id FROM case_photos WHERE id=$1`, [id])).rows[0];
+  },
+  async remove(id: string): Promise<void> {
+    await query(`DELETE FROM case_photos WHERE id=$1`, [id]);
+  },
 };
 
 export const events = {

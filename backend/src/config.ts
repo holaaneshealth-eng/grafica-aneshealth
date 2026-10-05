@@ -52,6 +52,9 @@ export const config = {
   corsOrigin: process.env.CORS_ORIGIN ?? "",
   // Politica de retencion (autoborrado)
   retentionDays: parseInt(process.env.RETENTION_DAYS ?? "15", 10),
+  // Modo simulacion del autoborrado: por defecto ACTIVADO (no borra nada; solo audita
+  // que casos borraria). Para borrar de verdad hay que poner RETENTION_DRY_RUN=false.
+  retentionDryRun: (process.env.RETENTION_DRY_RUN ?? "true").toLowerCase() !== "false",
   // Envío de correo (imagen de la hoja anestésica). Usa la API HTTP de Resend.
   mail: {
     resendApiKey: process.env.RESEND_API_KEY ?? "",

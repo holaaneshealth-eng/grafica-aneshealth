@@ -91,6 +91,9 @@ export function buildChartModel(cs: CaseState): ChartModel {
   const ta = sortedVitals
     .filter((v) => v.values.TAS != null || v.values.TAD != null || v.values.TAM != null)
     .map((v) => ({ at: ms(v.at), sys: v.values.TAS, dia: v.values.TAD, map: v.values.TAM }));
+  const ibp = sortedVitals
+    .filter((v) => v.values.PAIS != null || v.values.PAID != null || v.values.PAIM != null)
+    .map((v) => ({ at: ms(v.at), sys: v.values.PAIS, dia: v.values.PAID, map: v.values.PAIM }));
   const fc = sortedVitals.filter((v) => v.values.FC != null).map((v) => ({ at: ms(v.at), fc: v.values.FC }));
 
   // ---- constantes: medidas y fijadas ----
@@ -240,7 +243,7 @@ export function buildChartModel(cs: CaseState): ChartModel {
     date: dmy(cs.createdAt),
     startAt,
     endAt,
-    hemo: { ta, fc },
+    hemo: { ta, ibp, fc },
     measuredRows,
     fixedRows,
     drugRows,

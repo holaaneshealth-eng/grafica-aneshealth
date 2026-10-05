@@ -41,7 +41,8 @@ export interface FcSample {
   fc: number;
 }
 export interface HemoBand {
-  ta: TaSample[];
+  ta: TaSample[]; // tensión arterial NO invasiva (PANI)
+  ibp: TaSample[]; // tensión arterial INVASIVA (PA/ART) — marcador distinto
   fc: FcSample[];
 }
 

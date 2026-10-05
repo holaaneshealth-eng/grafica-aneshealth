@@ -5,23 +5,18 @@ import { api, ApiError } from "../api";
 import type { CaseState } from "../domain/events";
 import { formatNum } from "../domain/calculations";
 import { buildReview, buildVitalsToWrite, type ReviewItem, type VisionReading } from "../domain/visionImport";
-import { preprocessDataUrl } from "../vision/preprocess";
-import { parseTrendTable } from "../vision/trendTableParser";
-import { tesseractEngine } from "../vision/tesseractEngine";
+import { compressMonitorPhoto } from "../vision/compress";
 
 interface Props {
   cs: CaseState;
   onClose: () => void;
   onDone: (m: string) => void;
+  // Imágenes ya guardadas (Vía 1) para analizar al cambiar a Vía 2. Si se pasan, el modal
+  // omite la captura y analiza directamente estas fotos.
+  initialImages?: { dataUrl: string; mime: string }[];
 }
 
 type Phase = "capture" | "processing" | "review";
-// Dos motores: Claude (nube, por defecto cuando hay clave en el servidor) y Tesseract
-// (en el móvil, alternativa manual por si no hubiera conexión con el servidor).
-type EngineId = "tesseract" | "claude";
-// Clave v2: ignora preferencias antiguas (incluido el extinto "paddle") para que, cuando
-// haya clave, Claude sea el motor por defecto en todos los dispositivos.
-const ENGINE_KEY = "ah_ocr_engine_v2";
 
 function readAsDataURL(file: File): Promise<string> {
   return new Promise((res, rej) => {
@@ -36,32 +31,17 @@ function rid(): string {
   return "vf-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
 
-// Extrae SIEMPRE algo útil del error, aunque no sea un Error (los workers de OCR a veces
-// rechazan con un string, un evento o un objeto). Así nunca ocultamos la causa real.
 function describeError(err: unknown): string {
   if (err instanceof ApiError) {
-    return err.code === "VISION_NOT_CONFIGURED" ? "El motor de nube (Claude) no está configurado en el servidor." : err.message;
+    return err.code === "VISION_NOT_CONFIGURED" ? "El análisis en la nube (Claude) no está configurado en el servidor." : err.message;
   }
   if (err instanceof Error) return err.message || err.name || "Error desconocido";
-  if (typeof err === "string") return err;
-  if (err && typeof err === "object") {
-    const o = err as any;
-    if (typeof o.message === "string" && o.message) return o.message;
-    if (typeof o.error === "string" && o.error) return o.error;
-    if (o.type) return `evento "${o.type}" (posible fallo del lector en el navegador)`;
-    try {
-      const s = JSON.stringify(o);
-      if (s && s !== "{}") return s;
-    } catch {
-      /* ignore */
-    }
-  }
   return String(err);
 }
 
-export function VisionImportModal({ cs, onClose, onDone }: Props) {
+export function VisionImportModal({ cs, onClose, onDone, initialImages }: Props) {
   const append = useStore((s) => s.append);
-  const [phase, setPhase] = useState<Phase>("capture");
+  const [phase, setPhase] = useState<Phase>(initialImages && initialImages.length ? "processing" : "capture");
   const [readings, setReadings] = useState<VisionReading[]>([]);
   const [items, setItems] = useState<ReviewItem[]>([]);
   const [shiftMin, setShiftMin] = useState(0);
@@ -69,81 +49,62 @@ export function VisionImportModal({ cs, onClose, onDone }: Props) {
   const [note, setNote] = useState<string | null>(null);
   const [dateWarn, setDateWarn] = useState<string | null>(null);
   const [customFor, setCustomFor] = useState<Record<string, boolean>>({});
-  const [claudeAvailable, setClaudeAvailable] = useState(false);
-  // Provisional (Tesseract) hasta saber si el servidor tiene Claude; se corrige al montar.
-  const [engine, setEngine] = useState<EngineId>("tesseract");
-  const [progress, setProgress] = useState(0);
 
+  function toReview(got: VisionReading[], detectedDate: string | null) {
+    const caseDate = new Date(cs.createdAt).toLocaleDateString("sv-SE");
+    setDateWarn(detectedDate && detectedDate !== caseDate ? `La fecha del monitor (${detectedDate}) no coincide con la del caso (${caseDate}). Las columnas se fechan con la del caso; revisa las horas.` : null);
+    setReadings(got);
+    setItems(buildReview(got, cs, 0));
+    setShiftMin(0);
+    setCustomFor({});
+    setPhase("review");
+    if (got.length === 0) setNote("No se ha leído ningún valor con seguridad. Prueba con una foto más nítida o registra a mano.");
+  }
+
+  async function analyze(images: { dataUrl: string; mime: string }[]) {
+    setError(null);
+    setNote(null);
+    setPhase("processing");
+    try {
+      const all: VisionReading[] = [];
+      let detectedDate: string | null = null;
+      for (const img of images) {
+        const r = await api.visionImport({ imageBase64: img.dataUrl, mimeType: img.mime });
+        all.push(...r.readings);
+        if (!detectedDate && r.fecha) detectedDate = r.fecha;
+      }
+      toReview(all, detectedDate);
+    } catch (err) {
+      setError(`No se pudo analizar la foto en la nube. Detalle: ${describeError(err)}`);
+      setPhase("capture");
+    }
+  }
+
+  // Si llegan imágenes ya guardadas (Vía 1 -> 2), analizarlas al montar.
   useEffect(() => {
-    api
-      .visionStatus()
-      .then((s) => {
-        setClaudeAvailable(s.claudeAvailable);
-        // Si hay clave, Claude es el motor por defecto en TODOS los dispositivos; si no,
-        // solo Tesseract. Se respeta una elección manual previa si sigue siendo válida.
-        const stored = localStorage.getItem(ENGINE_KEY) as EngineId | null;
-        const valid: EngineId[] = s.claudeAvailable ? ["claude", "tesseract"] : ["tesseract"];
-        const byDefault: EngineId = s.claudeAvailable ? "claude" : "tesseract";
-        setEngine(stored && valid.includes(stored) ? stored : byDefault);
-      })
-      .catch(() => {
-        // Sin conexión con el servidor: no sabemos si hay Claude -> Tesseract (en el móvil).
-        setClaudeAvailable(false);
-        setEngine("tesseract");
-      });
+    if (initialImages && initialImages.length) void analyze(initialImages);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  function pickEngine(id: EngineId) {
-    setEngine(id);
-    localStorage.setItem(ENGINE_KEY, id);
-  }
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     setError(null);
-    setNote(null);
-    setProgress(0);
     setPhase("processing");
     try {
-      const dataUrl = await readAsDataURL(file);
-      let got: VisionReading[] = [];
-      let detectedDate: string | null = null;
-      if (engine === "claude") {
-        const r = await api.visionImport({ imageBase64: dataUrl, mimeType: file.type || "image/jpeg" });
-        got = r.readings;
-        detectedDate = r.fecha ?? null;
-      } else {
-        const canvas = await preprocessDataUrl(dataUrl);
-        const result = await tesseractEngine.recognize(canvas, (p) => setProgress(p));
-        const parsed = parseTrendTable(result.words);
-        got = parsed.readings;
-        detectedDate = parsed.detectedDate ?? null;
-        if (parsed.columns < 2) setNote("No se ha reconocido la rejilla de horas. Asegúrate de fotografiar la vista de tendencias tabulares, de frente y sin reflejos.");
+      // Para el análisis conservamos el color (Claude lee mejor); solo reducimos tamaño.
+      let dataUrl: string;
+      let mime = file.type || "image/jpeg";
+      try {
+        const c = await compressMonitorPhoto(file, { grayscaleInvert: false, quality: 0.7 });
+        dataUrl = c.dataUrl;
+        mime = "image/jpeg";
+      } catch {
+        dataUrl = await readAsDataURL(file);
       }
-      // Aviso si la fecha de la cabecera del monitor no coincide con la del caso
-      // (las columnas se fechan con la del caso).
-      const caseDate = new Date(cs.createdAt).toLocaleDateString("sv-SE"); // YYYY-MM-DD local
-      setDateWarn(detectedDate && detectedDate !== caseDate ? `La fecha del monitor (${detectedDate}) no coincide con la del caso (${caseDate}). Las columnas se fechan con la del caso; revisa las horas.` : null);
-      setReadings(got);
-      setItems(buildReview(got, cs, 0));
-      setShiftMin(0);
-      setCustomFor({});
-      setPhase("review");
-      if (got.length === 0 && !note) setNote("No se ha leído ningún valor con seguridad. Prueba con una foto más nítida o con el motor de nube (Claude) si está disponible.");
+      await analyze([{ dataUrl, mime }]);
     } catch (err) {
-      const engLabel = engine === "claude" ? "Claude (nube)" : "Tesseract";
-      // eslint-disable-next-line no-console
-      console.error("[vision import] fallo con", engLabel, err);
-      let msg = `No se pudo procesar la foto con ${engLabel}. Detalle: ${describeError(err)}`;
-      if (engine === "tesseract") {
-        // Tesseract (en el móvil) es frágil en algunos navegadores (p.ej. iOS Safari).
-        msg += claudeAvailable
-          ? " Te recomendamos cambiar el motor a «Claude (nube)» arriba, o registrar los valores a mano."
-          : " Puedes registrar los valores a mano; cuando el servidor tenga configurado el motor de nube (Claude), será la opción recomendada.";
-      }
-      setError(msg);
+      setError(`No se pudo procesar la foto. Detalle: ${describeError(err)}`);
       setPhase("capture");
     }
   }
@@ -184,54 +145,27 @@ export function VisionImportModal({ cs, onClose, onDone }: Props) {
   const unknown = items.filter((it) => !it.known);
   const willWrite = buildVitalsToWrite(items).reduce((s, w) => s + Object.keys(w.values).length, 0);
 
-  const engines: { id: EngineId; label: string; hint: string }[] = [
-    ...(claudeAvailable ? [{ id: "claude" as EngineId, label: "Claude (nube)", hint: "recomendado · más preciso" }] : []),
-    { id: "tesseract", label: "Tesseract", hint: "en el móvil · sin servidor" },
-  ];
-
   return (
-    <Modal title="Importar constantes desde foto" onClose={onClose}>
+    <Modal title="Analizar foto del monitor (nube)" onClose={onClose}>
       {phase === "capture" && (
         <>
-          <div className="field">
-            {engines.length > 1 ? (
-              <>
-                <label>Motor de lectura</label>
-                <div className="seg">
-                  {engines.map((e) => (
-                    <button key={e.id} className={engine === e.id ? "on" : ""} onClick={() => pickEngine(e.id)} title={e.hint}>
-                      {e.label}
-                    </button>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <label>Motor de lectura: Tesseract (en el móvil)</label>
-            )}
-            <p className="sub">
-              {engine === "claude"
-                ? "La foto se envía al servidor y a Claude (no se guarda). Es la opción recomendada."
-                : claudeAvailable
-                  ? "La foto NO sale del móvil: se lee en el propio navegador. Útil si no hay conexión con el servidor; puede fallar en algunos móviles."
-                  : "La foto NO sale del móvil: se lee en el propio navegador."}
-            </p>
-          </div>
           <p className="sub">
-            Fotografía la pantalla de <strong>tendencias tabulares</strong> (columnas cada 5 min), de frente y sin reflejos. Revisarás los valores antes de volcarlos.
+            La foto se envía al servidor y a Claude (Haiku 4.5) para leer la tabla; <strong>no se guarda</strong>. Revisarás los valores antes de volcarlos.
+          </p>
+          <p className="sub">
+            Fotografía la pantalla de <strong>tendencias tabulares</strong> (columnas cada 5 min), de frente y sin reflejos.
           </p>
           {error && <div className="alert danger">{error}</div>}
           <label className="btn primary block lg" style={{ textAlign: "center", cursor: "pointer" }}>
             Abrir cámara / elegir foto
             <input type="file" accept="image/*" capture="environment" onChange={onFile} style={{ display: "none" }} />
           </label>
-          <p className="sub" style={{ marginTop: 8 }}>El registro manual sigue funcionando igual; esto es solo una vía más de entrada.</p>
         </>
       )}
 
       {phase === "processing" && (
         <div className="alert">
-          Procesando la foto{engine !== "claude" ? ` (${Math.round(progress * 100)}%)` : "… si el servicio estaba inactivo, la primera vez puede tardar unos segundos"}…
-          {engine !== "claude" && <div className="sub" style={{ marginTop: 6 }}>La primera vez se descarga el motor de lectura; puede tardar un poco.</div>}
+          Analizando la foto en la nube… si el servicio estaba inactivo, la primera vez puede tardar unos segundos.
         </div>
       )}
 
@@ -321,7 +255,7 @@ export function VisionImportModal({ cs, onClose, onDone }: Props) {
             Se volcarán <strong>{willWrite}</strong> valores. Los parámetros fijados (VT, FR, PEEP, FiO₂) solo se registran cuando cambian. En conflicto con un valor manual, por defecto se conserva el manual.
           </div>
           <div className="grid2">
-            <button className="btn lg" onClick={() => setPhase("capture")}>Otra foto</button>
+            <button className="btn lg" onClick={() => { setItems([]); setReadings([]); setPhase("capture"); }}>Otra foto</button>
             <button className="btn primary lg" onClick={confirm}>Confirmar e importar</button>
           </div>
         </>

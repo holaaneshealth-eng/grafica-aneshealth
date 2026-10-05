@@ -126,9 +126,19 @@ export const api = {
   voidEvent: (id: string, targetEventId: string, reason: string) =>
     request<{ ok: true }>(`/cases/${id}/void`, "POST", { targetEventId, reason }),
   deleteCase: (id: string) => request<{ ok: true }>(`/cases/${id}`, "DELETE"),
+  // Fotos del monitor (Vía 1)
+  addPhoto: (id: string, payload: { imageBase64: string; mimeType: string; takenAt?: string }) =>
+    request<{ photo: { id: string; taken_at: string; mime: string; byte_size: number }; event: ApiEvent }>(`/cases/${id}/photos`, "POST", payload),
+  listPhotos: (id: string) => request<{ photos: { id: string; taken_at: string; mime: string; byte_size: number }[] }>(`/cases/${id}/photos`),
+  deletePhoto: (id: string, photoId: string) => request<{ ok: true }>(`/cases/${id}/photos/${photoId}`, "DELETE"),
+  photoUrl: (id: string, photoId: string) => `${BASE}/cases/${id}/photos/${photoId}`,
   sendSheetPdf: (payload: { pdfBase64: string; ia: string; version: number; signedAt?: string }) =>
     request<{ ok: true; to: string; subject: string }>("/mail/send", "POST", payload),
-  visionStatus: () => request<{ claudeAvailable: boolean; model: string }>("/vision/status"),
+  visionStatus: () => request<{ claudeAvailable: boolean; model: string; photosEnabled: boolean }>("/vision/status"),
+  retentionPreview: () =>
+    request<{ dryRun: boolean; retentionDays: number; cutoff: string; ok: boolean; error?: string; cases: { ia: string; status: string; lastActivity: string; signedAt: string | null }[] }>(
+      "/cases/retention-preview",
+    ),
   visionImport: (payload: { imageBase64: string; mimeType: string }) =>
     request<{ readings: { hora: string; parametro: string; valor: number; unidad?: string }[]; fecha?: string | null }>("/vision/import", "POST", payload),
 
