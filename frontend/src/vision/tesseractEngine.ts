@@ -21,22 +21,37 @@ export const tesseractEngine: OcrEngine = {
     // Todos los ficheros (worker, núcleo wasm e idioma) se sirven desde NUESTRO origen,
     // nunca de un CDN. Se descargan solo al elegir este motor (carga diferida).
     const base = `${import.meta.env.BASE_URL}ocr/tesseract`;
-    const worker: any = await createWorker("eng", 1, {
-      workerPath: `${base}/worker.min.js`,
-      corePath: base,
-      langPath: `${base}/lang`,
-      logger: (m: any) => {
-        if (m.status === "recognizing text" && onProgress) onProgress(m.progress);
-      },
-    });
+    // Tesseract.js, cuando el worker falla (p.ej. sin memoria en iOS o un fichero que no
+    // carga), suele rechazar con un string o un evento, no con un Error. Eso hacía que la
+    // app mostrara el mensaje genérico "No se pudo procesar la foto" sin pista alguna.
+    // Convertimos SIEMPRE cualquier fallo en un Error con contexto para poder diagnosticar.
+    let worker: any;
+    try {
+      worker = await createWorker("eng", 1, {
+        workerPath: `${base}/worker.min.js`,
+        corePath: base,
+        langPath: `${base}/lang`,
+        logger: (m: any) => {
+          if (m.status === "recognizing text" && onProgress) onProgress(m.progress);
+        },
+      });
+    } catch (e: any) {
+      throw new Error(`Tesseract no pudo iniciar (worker/núcleo/idioma): ${e?.message ?? String(e)}`);
+    }
     try {
       await worker.setParameters({
         tessedit_char_whitelist: "0123456789:/().-%+ ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
       });
       const { data } = await worker.recognize(canvas, {}, { blocks: true });
       return { words: extractWords(data), width: canvas.width, height: canvas.height };
+    } catch (e: any) {
+      throw new Error(`Tesseract falló al leer la imagen: ${e?.message ?? String(e)}`);
     } finally {
-      await worker.terminate();
+      try {
+        await worker.terminate();
+      } catch {
+        /* ignorar errores al cerrar el worker */
+      }
     }
   },
 };
