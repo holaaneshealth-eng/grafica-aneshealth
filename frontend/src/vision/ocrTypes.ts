@@ -12,7 +12,7 @@ export interface OcrResult {
   height: number;
 }
 
-export type OcrEngineId = "tesseract" | "paddle" | "claude";
+export type OcrEngineId = "tesseract" | "claude";
 
 export interface OcrEngine {
   id: OcrEngineId;

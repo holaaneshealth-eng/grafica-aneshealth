@@ -8,7 +8,6 @@ import { buildReview, buildVitalsToWrite, type ReviewItem, type VisionReading } 
 import { preprocessDataUrl } from "../vision/preprocess";
 import { parseTrendTable } from "../vision/trendTableParser";
 import { tesseractEngine } from "../vision/tesseractEngine";
-import { paddleEngine } from "../vision/paddleEngine";
 
 interface Props {
   cs: CaseState;
@@ -17,8 +16,12 @@ interface Props {
 }
 
 type Phase = "capture" | "processing" | "review";
-type EngineId = "tesseract" | "paddle" | "claude";
-const ENGINE_KEY = "ah_ocr_engine";
+// Dos motores: Claude (nube, por defecto cuando hay clave en el servidor) y Tesseract
+// (en el móvil, alternativa manual por si no hubiera conexión con el servidor).
+type EngineId = "tesseract" | "claude";
+// Clave v2: ignora preferencias antiguas (incluido el extinto "paddle") para que, cuando
+// haya clave, Claude sea el motor por defecto en todos los dispositivos.
+const ENGINE_KEY = "ah_ocr_engine_v2";
 
 function readAsDataURL(file: File): Promise<string> {
   return new Promise((res, rej) => {
@@ -67,7 +70,8 @@ export function VisionImportModal({ cs, onClose, onDone }: Props) {
   const [dateWarn, setDateWarn] = useState<string | null>(null);
   const [customFor, setCustomFor] = useState<Record<string, boolean>>({});
   const [claudeAvailable, setClaudeAvailable] = useState(false);
-  const [engine, setEngine] = useState<EngineId>(() => (localStorage.getItem(ENGINE_KEY) as EngineId) || "tesseract");
+  // Provisional (Tesseract) hasta saber si el servidor tiene Claude; se corrige al montar.
+  const [engine, setEngine] = useState<EngineId>("tesseract");
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
@@ -75,9 +79,18 @@ export function VisionImportModal({ cs, onClose, onDone }: Props) {
       .visionStatus()
       .then((s) => {
         setClaudeAvailable(s.claudeAvailable);
-        if (!s.claudeAvailable && engine === "claude") pickEngine("tesseract");
+        // Si hay clave, Claude es el motor por defecto en TODOS los dispositivos; si no,
+        // solo Tesseract. Se respeta una elección manual previa si sigue siendo válida.
+        const stored = localStorage.getItem(ENGINE_KEY) as EngineId | null;
+        const valid: EngineId[] = s.claudeAvailable ? ["claude", "tesseract"] : ["tesseract"];
+        const byDefault: EngineId = s.claudeAvailable ? "claude" : "tesseract";
+        setEngine(stored && valid.includes(stored) ? stored : byDefault);
       })
-      .catch(() => setClaudeAvailable(false));
+      .catch(() => {
+        // Sin conexión con el servidor: no sabemos si hay Claude -> Tesseract (en el móvil).
+        setClaudeAvailable(false);
+        setEngine("tesseract");
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -103,8 +116,7 @@ export function VisionImportModal({ cs, onClose, onDone }: Props) {
         detectedDate = r.fecha ?? null;
       } else {
         const canvas = await preprocessDataUrl(dataUrl);
-        const eng = engine === "paddle" ? paddleEngine : tesseractEngine;
-        const result = await eng.recognize(canvas, (p) => setProgress(p));
+        const result = await tesseractEngine.recognize(canvas, (p) => setProgress(p));
         const parsed = parseTrendTable(result.words);
         got = parsed.readings;
         detectedDate = parsed.detectedDate ?? null;
@@ -121,10 +133,17 @@ export function VisionImportModal({ cs, onClose, onDone }: Props) {
       setPhase("review");
       if (got.length === 0 && !note) setNote("No se ha leído ningún valor con seguridad. Prueba con una foto más nítida o con el motor de nube (Claude) si está disponible.");
     } catch (err) {
-      const engLabel = engine === "claude" ? "Claude (nube)" : engine === "paddle" ? "PaddleOCR" : "Tesseract";
+      const engLabel = engine === "claude" ? "Claude (nube)" : "Tesseract";
       // eslint-disable-next-line no-console
       console.error("[vision import] fallo con", engLabel, err);
-      setError(`No se pudo procesar la foto con ${engLabel}. Detalle: ${describeError(err)}`);
+      let msg = `No se pudo procesar la foto con ${engLabel}. Detalle: ${describeError(err)}`;
+      if (engine === "tesseract") {
+        // Tesseract (en el móvil) es frágil en algunos navegadores (p.ej. iOS Safari).
+        msg += claudeAvailable
+          ? " Te recomendamos cambiar el motor a «Claude (nube)» arriba, o registrar los valores a mano."
+          : " Puedes registrar los valores a mano; cuando el servidor tenga configurado el motor de nube (Claude), será la opción recomendada.";
+      }
+      setError(msg);
       setPhase("capture");
     }
   }
@@ -166,9 +185,8 @@ export function VisionImportModal({ cs, onClose, onDone }: Props) {
   const willWrite = buildVitalsToWrite(items).reduce((s, w) => s + Object.keys(w.values).length, 0);
 
   const engines: { id: EngineId; label: string; hint: string }[] = [
-    { id: "tesseract", label: "Tesseract", hint: "gratuito · en el móvil" },
-    { id: "paddle", label: "PaddleOCR", hint: "gratuito · en el móvil" },
-    ...(claudeAvailable ? [{ id: "claude" as EngineId, label: "Claude (nube)", hint: "de pago · más preciso" }] : []),
+    ...(claudeAvailable ? [{ id: "claude" as EngineId, label: "Claude (nube)", hint: "recomendado · más preciso" }] : []),
+    { id: "tesseract", label: "Tesseract", hint: "en el móvil · sin servidor" },
   ];
 
   return (
@@ -176,18 +194,26 @@ export function VisionImportModal({ cs, onClose, onDone }: Props) {
       {phase === "capture" && (
         <>
           <div className="field">
-            <label>Motor de lectura</label>
-            <div className="seg">
-              {engines.map((e) => (
-                <button key={e.id} className={engine === e.id ? "on" : ""} onClick={() => pickEngine(e.id)}>
-                  {e.label}
-                </button>
-              ))}
-            </div>
+            {engines.length > 1 ? (
+              <>
+                <label>Motor de lectura</label>
+                <div className="seg">
+                  {engines.map((e) => (
+                    <button key={e.id} className={engine === e.id ? "on" : ""} onClick={() => pickEngine(e.id)} title={e.hint}>
+                      {e.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <label>Motor de lectura: Tesseract (en el móvil)</label>
+            )}
             <p className="sub">
               {engine === "claude"
-                ? "La foto se envía al servidor y a Claude (no se guarda)."
-                : "La foto NO sale del móvil: se lee en el propio navegador."}
+                ? "La foto se envía al servidor y a Claude (no se guarda). Es la opción recomendada."
+                : claudeAvailable
+                  ? "La foto NO sale del móvil: se lee en el propio navegador. Útil si no hay conexión con el servidor; puede fallar en algunos móviles."
+                  : "La foto NO sale del móvil: se lee en el propio navegador."}
             </p>
           </div>
           <p className="sub">
