@@ -1,7 +1,18 @@
 // Clasificación de parámetros para las bandas de la gráfica.
 
 // Banda 1 (hemodinámica): barra TA + línea FC. SpO2 NO va aquí (pasa a medidos).
-export const HEMO_CODES = ["TAS", "TAD", "TAM", "FC"];
+// TA no invasiva (NIBP) y TA invasiva (arterial) comparten banda pero se dibujan con
+// marcadores distintos (ver renderChart) y se explican en la leyenda.
+export const NIBP_CODES = ["TAS", "TAD", "TAM"]; // no invasiva
+export const IBP_CODES = ["PAIS", "PAID", "PAIM"]; // invasiva (arterial)
+export const HEMO_CODES = [...NIBP_CODES, ...IBP_CODES, "FC"];
+
+export function isNibpCode(code: string): boolean {
+  return NIBP_CODES.includes(code);
+}
+export function isIbpCode(code: string): boolean {
+  return IBP_CODES.includes(code);
+}
 
 // Banda 2, parámetros FIJADOS por el anestesiólogo (cifra al inicio y en cambios).
 export const VENTMODE_CODE = "VENTMODE";

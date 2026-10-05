@@ -1,14 +1,14 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useStore } from "../store/store";
 import type { CaseState } from "../domain/events";
-import { STANDARD_PARAMS } from "../domain/monitoring";
+import { STANDARD_PARAMS, RESP_FIXED_CODES, RESP_MEASURED_CODES, findParam } from "../domain/monitoring";
 import { TECHNIQUES, techniqueById, type TechniqueField } from "../domain/techniques";
 import { AnesthesiaChart } from "../components/AnesthesiaChart";
 import { MedicationTimeline } from "../components/MedicationTimeline";
 import { BloodProductModal } from "../components/BloodProductModal";
 import { LabModal } from "../components/LabModal";
 import { VitalsModal } from "../components/VitalsModal";
-import { VisionImportModal } from "../components/VisionImportModal";
+import { MonitorCapture } from "../components/MonitorCapture";
 import { Modal } from "../components/Modal";
 import { TimeField } from "../components/TimeField";
 import type { VitalsRecord } from "../domain/events";
@@ -31,17 +31,11 @@ const MILESTONES = MILESTONE_QUICK;
 
 export function Phase2({ cs, onToast, onAddVitalsAt }: Props) {
   const [tab, setTab] = useState<Tab>("safety");
-  const [showVision, setShowVision] = useState(false);
   return (
     <div>
-      {/* Acción destacada, visible en cualquier pestaña de quirófano. */}
-      <div className="card no-print" style={{ paddingTop: 10, paddingBottom: 10 }}>
-        <button className="btn primary block lg" onClick={() => setShowVision(true)}>
-          📷 Importar constantes desde foto
-        </button>
-        <p className="sub" style={{ margin: "6px 0 0" }}>Lee la pantalla de tendencias del monitor; revisas los valores antes de volcarlos. El registro manual sigue igual.</p>
-      </div>
-      {showVision && <VisionImportModal cs={cs} onClose={() => setShowVision(false)} onDone={(m) => onToast?.(m)} />}
+      {/* Registro del monitor: vía por imagen (1/2) + manual. Visible en cualquier pestaña. */}
+      <MonitorCapture cs={cs} onToast={onToast} />
+      <VentReminder cs={cs} />
 
       <div className="seg no-print" style={{ overflowX: "auto" }}>
         <button className={tab === "safety" ? "on" : ""} onClick={() => setTab("safety")}>
@@ -77,6 +71,32 @@ export function Phase2({ cs, onToast, onAddVitalsAt }: Props) {
           <AnesthesiaChart cs={cs} onTimeClick={onAddVitalsAt} />
         </div>
       )}
+    </div>
+  );
+}
+
+/* ---------------- Aviso de registro del respirador (>15 min) ---------------- */
+const RESP_CODES = new Set([...RESP_FIXED_CODES, ...RESP_MEASURED_CODES]);
+function lastRespMs(cs: CaseState): number {
+  let last = 0;
+  for (const v of cs.vitals) if (Object.keys(v.values).some((k) => RESP_CODES.has(k))) last = Math.max(last, new Date(v.at).getTime());
+  for (const m of cs.ventModes) last = Math.max(last, new Date(m.at).getTime());
+  return last;
+}
+function VentReminder({ cs }: { cs: CaseState }) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
+  if (cs.phase !== "OR" || cs.signedAt) return null; // solo durante la anestesia
+  const last = lastRespMs(cs) || new Date(cs.createdAt).getTime();
+  const mins = Math.floor((Date.now() - last) / 60_000);
+  if (mins < 15) return null;
+  // Aviso discreto, sin sonido.
+  return (
+    <div className="no-print" style={{ margin: "0 0 10px", padding: "6px 10px", borderRadius: 8, background: "rgba(234,179,8,0.12)", border: "1px solid rgba(234,179,8,0.4)", fontSize: 13, color: "var(--text)" }}>
+      ⏱ Hace {mins} min sin registro del respirador. Si no ha cambiado, pulsa «Sin cambios» en el respirador.
     </div>
   );
 }
@@ -506,21 +526,36 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
 
   const toast = (m: string) => onToast?.(m);
 
+  const [respModal, setRespModal] = useState(false);
   function setVentMode(mode: string) {
     const at = new Date().toISOString();
     append(cs.caseId, "VENT_MODE_SET", { id: "vm-" + Date.now(), at, mode }, at);
     onToast?.(`Modo ventilatorio: ${mode}`);
   }
   const currentVentMode = cs.ventModes.length ? cs.ventModes[cs.ventModes.length - 1].mode : null;
+  // Último registro del respirador (para precargar y para "Sin cambios").
+  const lastResp = cs.vitals.slice().reverse().find((v) => Object.keys(v.values).some((k) => RESP_CODES.has(k)));
+  function respSinCambios() {
+    const values: Record<string, number> = {};
+    if (lastResp) for (const [k, val] of Object.entries(lastResp.values)) if (RESP_CODES.has(k)) values[k] = val;
+    if (Object.keys(values).length === 0) {
+      onToast?.("Aún no hay valores del respirador. Usa «Registrar / editar».");
+      return;
+    }
+    const at = new Date().toISOString();
+    append(cs.caseId, "VITALS_RECORDED", { id: "v-" + Date.now(), at, values, source: "manual" }, at);
+    onToast?.("Respirador registrado (sin cambios)");
+  }
 
   return (
     <div>
       <div className="card">
-        <h2>Modo ventilatorio</h2>
+        <h2>Respirador</h2>
         <p className="sub">
-          Se registra con su hora. En la gráfica aparece como parámetro fijado (al inicio y en cada cambio).
-          {currentVentMode ? ` Actual: ${currentVentMode}.` : ""}
+          Modo ventilatorio y parámetros (VT, FR, PEEP, FiO₂ fijados; presión pico, EtCO₂, CAM medidos). En la gráfica, los fijados se muestran al inicio y en cada cambio.
+          {currentVentMode ? ` Modo actual: ${currentVentMode}.` : ""}
         </p>
+        <div className="section-title" style={{ margin: "4px 0 6px" }}>Modo ventilatorio</div>
         <div className="chips">
           {VENT_MODES.map((m) => (
             <button key={m} className={`chip ${currentVentMode === m ? "on" : ""}`} onClick={() => setVentMode(m)}>
@@ -528,7 +563,25 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
             </button>
           ))}
         </div>
+        {lastResp && (
+          <div className="sub" style={{ margin: "10px 0 6px" }}>
+            Último respirador ({hhmm(lastResp.at)}):{" "}
+            {Object.entries(lastResp.values)
+              .filter(([k]) => RESP_CODES.has(k))
+              .map(([k, v]) => `${findParam(k)?.label ?? k} ${formatNum(v)}`)
+              .join("  ·  ") || "—"}
+          </div>
+        )}
+        <div className="grid2" style={{ marginTop: 6 }}>
+          <button className="btn primary lg" onClick={respSinCambios} disabled={!lastResp}>
+            Sin cambios · registrar ahora
+          </button>
+          <button className="btn lg" onClick={() => setRespModal(true)}>
+            Registrar / editar respirador
+          </button>
+        </div>
       </div>
+      {respModal && <VitalsModal cs={cs} group="resp" onClose={() => setRespModal(false)} onDone={(m) => { onToast?.(m); setRespModal(false); }} />}
 
       <div className="card">
         <h2>Hitos</h2>

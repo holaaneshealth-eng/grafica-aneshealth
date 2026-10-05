@@ -61,12 +61,15 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
     return html2canvas(el, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
   }
 
-  // Construye el PDF completo (gráfica vectorial + resto de la hoja) y devuelve el documento.
+  // Construye el PDF completo (gráfica vectorial + fotos del monitor + resto de la hoja).
   async function buildPdfDoc(): Promise<jsPDF> {
     const chartBlock = chartBlockRef.current;
     try {
       const pdf = new jsPDF("l", "mm", "a4");
       generateGraphicPages(pdf, cs, true);
+
+      // Fotos del monitor (Vía 1): una por página, justo DESPUÉS de la gráfica, por hora.
+      await addMonitorPhotoPages(pdf, cs.caseId, cs.ia);
 
       if (chartBlock) chartBlock.style.display = "none";
       const canvas = await renderCanvas(sheetRef.current!);
@@ -585,6 +588,66 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
       </div>
     </div>
   );
+}
+
+// ---- Fotos del monitor en el PDF (Vía 1) ----
+function loadImgEl(src: string): Promise<HTMLImageElement> {
+  return new Promise((res, rej) => {
+    const i = new Image();
+    i.onload = () => res(i);
+    i.onerror = () => rej(new Error("img"));
+    i.src = src;
+  });
+}
+async function fetchPhotoDataUrl(caseId: string, photoId: string): Promise<string | null> {
+  const r = await fetch(api.photoUrl(caseId, photoId), { credentials: "same-origin" });
+  if (!r.ok) return null;
+  const b = await r.blob();
+  return await new Promise<string>((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(String(fr.result));
+    fr.onerror = () => rej(new Error("read"));
+    fr.readAsDataURL(b);
+  });
+}
+async function addMonitorPhotoPages(pdf: jsPDF, caseId: string, ia: string): Promise<void> {
+  let photos: { id: string; taken_at: string }[] = [];
+  try {
+    photos = (await api.listPhotos(caseId)).photos;
+  } catch {
+    return; // sin conexión o sin fotos
+  }
+  const sorted = photos.slice().sort((a, b) => a.taken_at.localeCompare(b.taken_at));
+  for (const ph of sorted) {
+    let dataUrl: string | null = null;
+    try {
+      dataUrl = await fetchPhotoDataUrl(caseId, ph.id);
+    } catch {
+      dataUrl = null;
+    }
+    if (!dataUrl) continue;
+    pdf.addPage("a4", "landscape");
+    const pw = pdf.internal.pageSize.getWidth();
+    const ph2 = pdf.internal.pageSize.getHeight();
+    pdf.setFontSize(11);
+    pdf.setTextColor(30);
+    pdf.text(`Registro del monitor (imagen) · ${ia}`, 6, 8);
+    pdf.setFontSize(10);
+    pdf.setTextColor(90);
+    pdf.text(`${dmy(ph.taken_at)} ${hhmm(ph.taken_at)}`, pw - 6, 8, { align: "right" });
+    const topY = 12;
+    const availW = pw - 12;
+    const availH = ph2 - topY - 6;
+    try {
+      const img = await loadImgEl(dataUrl);
+      const scale = Math.min(availW / img.width, availH / img.height);
+      const w = img.width * scale;
+      const h = img.height * scale;
+      pdf.addImage(dataUrl, "JPEG", (pw - w) / 2, topY, w, h);
+    } catch {
+      /* imagen ilegible: página con solo el encabezado */
+    }
+  }
 }
 
 function buildTextSummary(cs: CaseState, timeline: { at: string; label: string; detail?: string }[]): string {

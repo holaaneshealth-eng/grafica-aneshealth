@@ -24,6 +24,9 @@ export type EventType =
   | "VITALS_REMOVED"
   | "WEIGHT_UPDATED"
   | "VENT_MODE_SET"
+  | "MONITOR_MODE_SET"
+  | "MONITOR_PHOTO_ADDED"
+  | "MONITOR_PHOTO_REMOVED"
   | "MILESTONE"
   | "MILESTONE_TIME_CHANGED"
   | "MILESTONE_REMOVED"
@@ -142,6 +145,21 @@ export interface EmailSendRecord {
   ok: boolean; // resultado del envío
 }
 
+// Vía de registro del monitor elegida para el caso.
+//  1 = foto SIN análisis (se guarda la imagen y va al PDF).
+//  2 = foto analizada con Claude (los valores pasan a la tabla y a la gráfica).
+export type MonitorVia = 1 | 2;
+
+// Metadatos de una foto del monitor guardada (Vía 1). Los bytes viven en el backend
+// (tabla case_photos); aquí solo el índice ligero para la proyección y el orden.
+export interface MonitorPhotoRecord {
+  id: string;
+  at: string; // hora clínica de la foto
+  mime: string;
+  byteSize: number; // tamaño del JPEG comprimido (para mostrarlo junto a la hora)
+  analyzed?: boolean; // si ya se analizó con Claude al cambiar a Vía 2
+}
+
 export interface InfusionChange {
   at: string;
   rateMlH: number;
@@ -215,6 +233,8 @@ export interface CaseState {
   vitals: VitalsRecord[];
   ventModes: VentModeRecord[];
   emailSends: EmailSendRecord[];
+  monitorVia: MonitorVia | null; // vía de registro del monitor (null = aún sin elegir)
+  monitorPhotos: MonitorPhotoRecord[]; // fotos guardadas (Vía 1)
   incidents: IncidentRecord[];
   milestones: MilestoneRecord[];
   bloodProducts: BloodProductRecord[];
@@ -243,6 +263,8 @@ export function emptyCaseState(caseId: string, ia: string, year: number, ordinal
     vitals: [],
     ventModes: [],
     emailSends: [],
+    monitorVia: null,
+    monitorPhotos: [],
     incidents: [],
     milestones: [],
     bloodProducts: [],

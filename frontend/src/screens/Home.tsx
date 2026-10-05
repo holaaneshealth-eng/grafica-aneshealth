@@ -17,7 +17,8 @@ export function Home({ onOpen, onToast }: Props) {
   const [creating, setCreating] = useState(false);
 
   const active = cases.filter((c) => c.status === "active");
-  const closed = cases.filter((c) => c.status !== "active");
+  const unsigned = cases.filter((c) => c.status === "closed"); // cerrado pero sin firmar
+  const signed = cases.filter((c) => c.status === "signed");
 
   async function newCase() {
     setCreating(true);
@@ -61,7 +62,7 @@ export function Home({ onOpen, onToast }: Props) {
         <span className={`tag ${c.status === "active" ? "active" : "closed"}`}>
           {c.status === "active" ? "En curso" : c.status === "signed" ? "Firmado" : "Cerrado"}
         </span>
-        {user.role === "admin" && (
+        {(user.role === "admin" || (mine && c.status !== "signed")) && (
           <button
             className="btn ghost"
             style={{ minHeight: 44, padding: "0 12px", color: "var(--text-dim)" }}
@@ -93,15 +94,28 @@ export function Home({ onOpen, onToast }: Props) {
         </>
       )}
 
-      <div className="section-title">Cerrados{closed.length > 0 ? ` (${closed.length})` : ""}</div>
-      {closed.length === 0 && active.length === 0 && <div className="empty">No hay procedimientos todavía.</div>}
-      {closed.map((c) => (
+      {unsigned.length > 0 && (
+        <>
+          <div className="section-title">Casos sin firmar ({unsigned.length})</div>
+          <p className="sub" style={{ margin: "0 0 6px" }}>
+            No se autoborran mientras no se firmen. Ábrelos para completarlos y firmarlos, o elimínalos manualmente.
+          </p>
+          {unsigned.map((c) => (
+            <CaseRow key={c.caseId} c={c} />
+          ))}
+        </>
+      )}
+
+      <div className="section-title">Firmados{signed.length > 0 ? ` (${signed.length})` : ""}</div>
+      {signed.length === 0 && active.length === 0 && unsigned.length === 0 && <div className="empty">No hay procedimientos todavía.</div>}
+      {signed.map((c) => (
         <CaseRow key={c.caseId} c={c} />
       ))}
 
       <div className="alert" style={{ marginTop: 18 }}>
-        Puedes consultar todos los casos, pero solo puedes registrar en el paciente que estás atendiendo. Los pacientes
-        se eliminan automáticamente {RETENTION_DAYS} días después de su última actividad (RGPD).
+        Puedes consultar todos los casos, pero solo puedes registrar en el paciente que estás atendiendo. Los casos
+        <strong> firmados y enviados</strong> se eliminan automáticamente {RETENTION_DAYS} días después de su última actividad (RGPD);
+        los casos sin firmar o pendientes de envío se conservan.
       </div>
     </div>
   );

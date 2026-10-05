@@ -24,5 +24,3 @@ frontend/out/
 .fonttmp/
 frontend/.fonttmp/
 
-# Assets de OCR autoalojados (se generan en prebuild: núcleo/idioma de Tesseract)
-frontend/public/ocr/
