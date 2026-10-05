@@ -5,13 +5,18 @@
   "type": "module",
   "description": "Hoja anestesica digital - registro clinico orientado a eventos, offline-first y responsive.",
   "scripts": {
+    "predev": "node scripts/fetch-ocr-assets.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/fetch-ocr-assets.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
+    "@paddlejs-models/ocr": "^1.2.4",
+    "@paddlejs/paddlejs-backend-webgl": "^1.2.9",
+    "@paddlejs/paddlejs-core": "^2.2.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^2.5.2",
     "react": "^18.3.1",

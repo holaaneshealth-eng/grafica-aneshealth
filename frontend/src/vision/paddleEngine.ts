@@ -1,21 +1,45 @@
 import type { OcrEngine, OcrResult, OcrWord } from "./ocrTypes";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// PaddleOCR (versión web) cargado desde CDN en tiempo de ejecución (no se empaqueta,
-// no infla el bundle ni rompe el build). Experimental: a validar con fotos reales.
-const PADDLE_CDN = "https://esm.sh/@paddlejs-models/ocr@1.1.0";
-
+// PaddleOCR (versión web). La BIBLIOTECA viene del paquete npm (empaquetada y servida
+// por nosotros) y los MODELOS se sirven desde NUESTRO origen (public/ocr/paddle), nunca
+// de un CDN. Se cargan solo al elegir este motor (import dinámico = carga diferida).
 let paddle: any = null;
+
+const MODELS_BASE = `${import.meta.env.BASE_URL}ocr/paddle/`;
+
+// PaddleJS trae las URLs de los modelos fijas a un CDN (bcebos). Interceptamos fetch
+// durante init/recognize y las redirigimos a nuestros ficheros locales.
+async function withLocalModels<T>(fn: () => Promise<T>): Promise<T> {
+  const orig = window.fetch.bind(window);
+  const remap = (s: string): string | null => {
+    const det = s.indexOf("ch_PP-OCRv2_det_fuse_activation/");
+    if (det >= 0) return MODELS_BASE + "det/" + s.slice(det + "ch_PP-OCRv2_det_fuse_activation/".length);
+    const rec = s.indexOf("ch_PP-OCRv2_rec_fuse_activation/");
+    if (rec >= 0) return MODELS_BASE + "rec/" + s.slice(rec + "ch_PP-OCRv2_rec_fuse_activation/".length);
+    return null;
+  };
+  window.fetch = ((input: any, init?: any) => {
+    const url = typeof input === "string" ? input : input?.url ?? "";
+    const local = remap(String(url));
+    return orig(local ?? input, init);
+  }) as typeof window.fetch;
+  try {
+    return await fn();
+  } finally {
+    window.fetch = orig;
+  }
+}
+
 async function loadPaddle(): Promise<any> {
   if (paddle) return paddle;
-  const mod: any = await import(/* @vite-ignore */ PADDLE_CDN);
+  const mod: any = await import("@paddlejs-models/ocr");
   const ocr = mod.default ?? mod;
-  if (typeof ocr.init === "function") await ocr.init();
+  await withLocalModels(() => ocr.init());
   paddle = ocr;
   return ocr;
 }
 
-// Reparte el texto de una línea en "palabras" distribuyendo su X por el ancho de la caja.
 function splitLineToWords(text: string, x0: number, y0: number, x1: number, y1: number): OcrWord[] {
   const tokens = text.split(/\s+/).filter(Boolean);
   if (tokens.length === 0) return [];
@@ -37,7 +61,7 @@ export const paddleEngine: OcrEngine = {
   async recognize(canvas: HTMLCanvasElement, onProgress?: (p: number) => void): Promise<OcrResult> {
     const ocr = await loadPaddle();
     onProgress?.(0.3);
-    const res: any = await ocr.recognize(canvas);
+    const res: any = await withLocalModels(() => ocr.recognize(canvas));
     onProgress?.(0.9);
     const words: OcrWord[] = [];
     const texts: string[] = res?.text ?? res?.texts ?? [];

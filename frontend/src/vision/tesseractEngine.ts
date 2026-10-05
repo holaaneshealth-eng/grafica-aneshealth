@@ -18,7 +18,13 @@ export const tesseractEngine: OcrEngine = {
   label: "Tesseract (gratuito, en el móvil)",
   async recognize(canvas: HTMLCanvasElement, onProgress?: (p: number) => void): Promise<OcrResult> {
     const { createWorker } = await import("tesseract.js");
+    // Todos los ficheros (worker, núcleo wasm e idioma) se sirven desde NUESTRO origen,
+    // nunca de un CDN. Se descargan solo al elegir este motor (carga diferida).
+    const base = `${import.meta.env.BASE_URL}ocr/tesseract`;
     const worker: any = await createWorker("eng", 1, {
+      workerPath: `${base}/worker.min.js`,
+      corePath: base,
+      langPath: `${base}/lang`,
       logger: (m: any) => {
         if (m.status === "recognizing text" && onProgress) onProgress(m.progress);
       },
