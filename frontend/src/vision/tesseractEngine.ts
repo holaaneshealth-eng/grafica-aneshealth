@@ -31,12 +31,19 @@ export const tesseractEngine: OcrEngine = {
         workerPath: `${base}/worker.min.js`,
         corePath: base,
         langPath: `${base}/lang`,
+        // iOS Safari: por defecto Tesseract.js crea el worker desde una URL "blob:", que
+        // tiene origen opaco; dentro de ese worker los importScripts/fetch de nuestro
+        // núcleo y el idioma (rutas del mismo origen) fallan de forma silenciosa y el
+        // worker se rechaza con `undefined`. Cargando el worker DIRECTAMENTE desde nuestra
+        // ruta (sin blob) se resuelve bien al mismo origen.
+        workerBlobURL: false,
         logger: (m: any) => {
           if (m.status === "recognizing text" && onProgress) onProgress(m.progress);
         },
       });
     } catch (e: any) {
-      throw new Error(`Tesseract no pudo iniciar (worker/núcleo/idioma): ${e?.message ?? String(e)}`);
+      const detail = e?.message ?? (e === undefined || e === null ? "sin detalle (posible fallo al cargar el worker/núcleo WASM en el navegador)" : String(e));
+      throw new Error(`Tesseract no pudo iniciar (worker/núcleo/idioma): ${detail}`);
     }
     try {
       await worker.setParameters({
