@@ -49,17 +49,20 @@ async function paddleModel(name, baseUrl) {
   const dir = path.join(OUT, "paddle", name);
   const jsonDest = path.join(dir, "model.json");
   await download(baseUrl + "model.json", jsonDest);
-  // Descarga los ficheros de pesos referenciados (chunk_*.dat u otros .dat).
-  const txt = await readFile(jsonDest, "utf8");
-  const files = Array.from(new Set((txt.match(/[\w.-]+\.dat/g) ?? [])));
-  if (files.length === 0) files.push("chunk_1.dat"); // fallback típico de PaddleJS
-  for (const f of files) {
-    try {
-      await download(baseUrl + f, path.join(dir, f));
-    } catch (e) {
-      console.log("  ! aviso:", f, String(e.message || e));
-    }
+  // PaddleJS reparte los pesos en N ficheros "chunk_1.dat" .. "chunk_N.dat", donde N
+  // es el campo "chunkNum" del model.json (p.ej. el modelo "rec" usa 2). Hay que
+  // descargarlos TODOS; si falta uno, PaddleJS da 404 y el OCR falla en producción.
+  const json = JSON.parse(await readFile(jsonDest, "utf8"));
+  const chunkNum = Number.isInteger(json.chunkNum) && json.chunkNum > 0 ? json.chunkNum : 1;
+  const files = Array.from({ length: chunkNum }, (_, i) => `chunk_${i + 1}.dat`);
+  // Por si alguna variante referencia ficheros .dat por nombre en el propio json.
+  for (const extra of new Set((JSON.stringify(json).match(/chunk_\d+\.dat/g) ?? []))) {
+    if (!files.includes(extra)) files.push(extra);
   }
+  for (const f of files) {
+    await download(baseUrl + f, path.join(dir, f));
+  }
+  console.log(`  = modelo "${name}": ${files.length} chunk(s) [${files.join(", ")}]`);
 }
 
 async function paddle() {

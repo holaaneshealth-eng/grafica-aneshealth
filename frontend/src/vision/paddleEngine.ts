@@ -8,6 +8,28 @@ let paddle: any = null;
 
 const MODELS_BASE = `${import.meta.env.BASE_URL}ocr/paddle/`;
 
+// PaddleJS (y sus dependencias: paddlejs-core, opencv) fueron escritas asumiendo
+// variables globales de Node (`global`, `process`). Al empaquetarlas para el navegador
+// quedan como referencias libres: en Safari eso da "Can't find variable: global" y en
+// Chrome "global is not defined". Definimos equivalentes mínimos ANTES de cargar el
+// módulo. Es inofensivo si ya existen.
+function ensureBrowserGlobals(): void {
+  const g = globalThis as any;
+  if (typeof g.global === "undefined") g.global = g;
+  if (typeof g.process === "undefined") {
+    g.process = {
+      env: {},
+      argv: [] as string[],
+      platform: "browser",
+      version: "",
+      versions: {} as Record<string, string>,
+      nextTick: (fn: (...a: any[]) => void, ...args: any[]) => Promise.resolve().then(() => fn(...args)),
+    };
+  } else if (!g.process.env) {
+    g.process.env = {};
+  }
+}
+
 // PaddleJS trae las URLs de los modelos fijas a un CDN (bcebos). Interceptamos fetch
 // durante init/recognize y las redirigimos a nuestros ficheros locales.
 async function withLocalModels<T>(fn: () => Promise<T>): Promise<T> {
@@ -33,9 +55,19 @@ async function withLocalModels<T>(fn: () => Promise<T>): Promise<T> {
 
 async function loadPaddle(): Promise<any> {
   if (paddle) return paddle;
-  const mod: any = await import("@paddlejs-models/ocr");
+  ensureBrowserGlobals();
+  let mod: any;
+  try {
+    mod = await import("@paddlejs-models/ocr");
+  } catch (e: any) {
+    throw new Error(`No se pudo cargar PaddleOCR: ${e?.message || e}`);
+  }
   const ocr = mod.default ?? mod;
-  await withLocalModels(() => ocr.init());
+  try {
+    await withLocalModels(() => ocr.init());
+  } catch (e: any) {
+    throw new Error(`PaddleOCR no pudo iniciar (modelos/WebGL): ${e?.message || e}`);
+  }
   paddle = ocr;
   return ocr;
 }
@@ -61,7 +93,12 @@ export const paddleEngine: OcrEngine = {
   async recognize(canvas: HTMLCanvasElement, onProgress?: (p: number) => void): Promise<OcrResult> {
     const ocr = await loadPaddle();
     onProgress?.(0.3);
-    const res: any = await withLocalModels(() => ocr.recognize(canvas));
+    let res: any;
+    try {
+      res = await withLocalModels(() => ocr.recognize(canvas));
+    } catch (e: any) {
+      throw new Error(`PaddleOCR falló al leer la imagen (WebGL): ${e?.message || e}`);
+    }
     onProgress?.(0.9);
     const words: OcrWord[] = [];
     const texts: string[] = res?.text ?? res?.texts ?? [];

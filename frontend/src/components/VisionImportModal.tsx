@@ -33,6 +33,29 @@ function rid(): string {
   return "vf-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
 
+// Extrae SIEMPRE algo útil del error, aunque no sea un Error (los workers de OCR a veces
+// rechazan con un string, un evento o un objeto). Así nunca ocultamos la causa real.
+function describeError(err: unknown): string {
+  if (err instanceof ApiError) {
+    return err.code === "VISION_NOT_CONFIGURED" ? "El motor de nube (Claude) no está configurado en el servidor." : err.message;
+  }
+  if (err instanceof Error) return err.message || err.name || "Error desconocido";
+  if (typeof err === "string") return err;
+  if (err && typeof err === "object") {
+    const o = err as any;
+    if (typeof o.message === "string" && o.message) return o.message;
+    if (typeof o.error === "string" && o.error) return o.error;
+    if (o.type) return `evento "${o.type}" (posible fallo del lector en el navegador)`;
+    try {
+      const s = JSON.stringify(o);
+      if (s && s !== "{}") return s;
+    } catch {
+      /* ignore */
+    }
+  }
+  return String(err);
+}
+
 export function VisionImportModal({ cs, onClose, onDone }: Props) {
   const append = useStore((s) => s.append);
   const [phase, setPhase] = useState<Phase>("capture");
@@ -98,15 +121,10 @@ export function VisionImportModal({ cs, onClose, onDone }: Props) {
       setPhase("review");
       if (got.length === 0 && !note) setNote("No se ha leído ningún valor con seguridad. Prueba con una foto más nítida o con el motor de nube (Claude) si está disponible.");
     } catch (err) {
-      const msg =
-        err instanceof ApiError
-          ? err.code === "VISION_NOT_CONFIGURED"
-            ? "El motor de nube (Claude) no está configurado en el servidor."
-            : err.message
-          : err instanceof Error
-            ? err.message
-            : "No se pudo procesar la foto.";
-      setError(msg);
+      const engLabel = engine === "claude" ? "Claude (nube)" : engine === "paddle" ? "PaddleOCR" : "Tesseract";
+      // eslint-disable-next-line no-console
+      console.error("[vision import] fallo con", engLabel, err);
+      setError(`No se pudo procesar la foto con ${engLabel}. Detalle: ${describeError(err)}`);
       setPhase("capture");
     }
   }
