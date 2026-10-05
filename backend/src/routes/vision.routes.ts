@@ -2,15 +2,16 @@ import { Router } from "express";
 import { z } from "zod";
 import { config } from "../config";
 import { authGuard, csrfGuard, requirePasswordChanged } from "../middleware";
-import { audit } from "../db";
+import { audit, dbFeatures } from "../db";
 
 export const visionRouter = Router();
 
 visionRouter.use(authGuard, csrfGuard, requirePasswordChanged);
 
-// Indica si el motor de pago (Claude) está disponible (hay clave configurada).
+// Estado del registro por foto: Claude (Vía 2, requiere clave) y fotos (Vía 1, requiere
+// que la tabla case_photos se haya creado correctamente).
 visionRouter.get("/status", (_req, res) => {
-  res.json({ claudeAvailable: !!config.vision.anthropicApiKey, model: config.vision.model });
+  res.json({ claudeAvailable: !!config.vision.anthropicApiKey, model: config.vision.model, photosEnabled: dbFeatures.photos });
 });
 
 const bodySchema = z.object({

@@ -23,6 +23,7 @@ export function MonitorCapture({ cs, onToast }: Props) {
   const append = useStore((s) => s.append);
   const canWrite = useStore((s) => s.canWrite(cs.caseId));
   const [claudeAvailable, setClaudeAvailable] = useState(false);
+  const [photosEnabled, setPhotosEnabled] = useState(true); // optimista hasta conocer el estado
   const [photos, setPhotos] = useState<PhotoMeta[]>([]);
   const [busy, setBusy] = useState(false);
   const [manual, setManual] = useState(false);
@@ -41,7 +42,16 @@ export function MonitorCapture({ cs, onToast }: Props) {
   }
 
   useEffect(() => {
-    api.visionStatus().then((s) => setClaudeAvailable(s.claudeAvailable)).catch(() => setClaudeAvailable(false));
+    api
+      .visionStatus()
+      .then((s) => {
+        setClaudeAvailable(s.claudeAvailable);
+        setPhotosEnabled(s.photosEnabled);
+      })
+      .catch(() => {
+        setClaudeAvailable(false);
+        setPhotosEnabled(false);
+      });
     void refreshPhotos();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cs.caseId]);
@@ -115,7 +125,7 @@ export function MonitorCapture({ cs, onToast }: Props) {
         <>
           <p className="sub" style={{ margin: "4px 0 8px" }}>Elige cómo registrarás el monitor en este caso (puedes cambiar de Vía 1 a Vía 2 más tarde):</p>
           <div className="grid2">
-            <button className="btn primary lg" disabled={!canWrite} onClick={() => chooseVia(1)}>
+            <button className="btn primary lg" disabled={!canWrite || !photosEnabled} onClick={() => chooseVia(1)}>
               Vía 1 · Foto sin análisis
             </button>
             <button className="btn lg" disabled={!canWrite || !claudeAvailable} onClick={() => chooseVia(2)}>
@@ -125,6 +135,7 @@ export function MonitorCapture({ cs, onToast }: Props) {
           <p className="sub" style={{ marginTop: 6 }}>
             Vía 1: la foto se guarda y va al PDF (cirugías cortas). Vía 2: se analiza y rellena la gráfica (cirugías largas).
             {!claudeAvailable && " La Vía 2 requiere la clave del servidor (ANTHROPIC_API_KEY)."}
+            {!photosEnabled && " La Vía 1 no está disponible ahora mismo en el servidor; usa el registro manual."}
           </p>
           <button className="btn block" style={{ marginTop: 8 }} disabled={!canWrite} onClick={() => setManual(true)}>
             ✍️ Registro manual del monitor
@@ -141,11 +152,17 @@ export function MonitorCapture({ cs, onToast }: Props) {
 
           {via === 1 ? (
             <>
-              <label className="btn primary block lg" style={{ textAlign: "center", cursor: canWrite ? "pointer" : "not-allowed", opacity: canWrite ? 1 : 0.6 }}>
-                {busy ? "Procesando…" : "📷 Añadir foto del monitor"}
-                <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={onPickPhoto} disabled={!canWrite || busy} style={{ display: "none" }} />
-              </label>
-              <p className="sub" style={{ marginTop: 6 }}>La foto se comprime en el móvil (≈1600 px) y se guarda con su hora. No se analiza; irá al PDF.</p>
+              {photosEnabled ? (
+                <>
+                  <label className="btn primary block lg" style={{ textAlign: "center", cursor: canWrite ? "pointer" : "not-allowed", opacity: canWrite ? 1 : 0.6 }}>
+                    {busy ? "Procesando…" : "📷 Añadir foto del monitor"}
+                    <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={onPickPhoto} disabled={!canWrite || busy} style={{ display: "none" }} />
+                  </label>
+                  <p className="sub" style={{ marginTop: 6 }}>La foto se comprime en el móvil (≈1600 px) y se guarda con su hora. No se analiza; irá al PDF.</p>
+                </>
+              ) : (
+                <div className="alert danger">La Vía 1 (fotos) no está disponible ahora mismo en el servidor. Usa el registro manual del monitor.</div>
+              )}
             </>
           ) : (
             <>

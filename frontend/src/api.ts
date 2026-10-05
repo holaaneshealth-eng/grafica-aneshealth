@@ -134,7 +134,11 @@ export const api = {
   photoUrl: (id: string, photoId: string) => `${BASE}/cases/${id}/photos/${photoId}`,
   sendSheetPdf: (payload: { pdfBase64: string; ia: string; version: number; signedAt?: string }) =>
     request<{ ok: true; to: string; subject: string }>("/mail/send", "POST", payload),
-  visionStatus: () => request<{ claudeAvailable: boolean; model: string }>("/vision/status"),
+  visionStatus: () => request<{ claudeAvailable: boolean; model: string; photosEnabled: boolean }>("/vision/status"),
+  retentionPreview: () =>
+    request<{ dryRun: boolean; retentionDays: number; cutoff: string; ok: boolean; error?: string; cases: { ia: string; status: string; lastActivity: string; signedAt: string | null }[] }>(
+      "/cases/retention-preview",
+    ),
   visionImport: (payload: { imageBase64: string; mimeType: string }) =>
     request<{ readings: { hora: string; parametro: string; valor: number; unidad?: string }[]; fecha?: string | null }>("/vision/import", "POST", payload),
 

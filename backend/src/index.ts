@@ -6,7 +6,7 @@ import cors from "cors";
 import compression from "compression";
 import cookieParser from "cookie-parser";
 import { config } from "./config";
-import { migrate } from "./db";
+import { migrate, migrateCasePhotos } from "./db";
 import { seedUsers, resetAdminIfRequested } from "./seed";
 import { startRetentionJob } from "./retention";
 import { globalLimiter, notFound, errorHandler } from "./middleware";
@@ -25,6 +25,7 @@ process.on("unhandledRejection", (reason) => {
 
 async function main(): Promise<void> {
   await migrate();
+  await migrateCasePhotos(); // no fatal: si falla, la Vía 1 queda desactivada
   await seedUsers();
   await resetAdminIfRequested();
   startRetentionJob();

@@ -1,9 +1,10 @@
 import crypto from "crypto";
 import { Router } from "express";
 import { z } from "zod";
-import { audit } from "../db";
+import { audit, dbFeatures } from "../db";
 import { cases, events, casePhotos } from "../repo";
 import { appendEvent, createCase, voidEvent, mapCase, mapEvent } from "../eventService";
+import { retentionPreview } from "../retention";
 import { authGuard, csrfGuard, requirePasswordChanged, requireAdmin } from "../middleware";
 import { canCreateCase } from "../rbac";
 import { appendEventSchema, voidEventSchema } from "../validation";
@@ -27,6 +28,12 @@ casesRouter.post("/", csrfGuard, async (req, res) => {
   const c = await createCase(req.user!);
   audit({ userId: req.user!.id, username: req.user!.username, action: "CASE_CREATED", targetType: "case", targetId: c.ia, ip: req.ip });
   res.status(201).json({ case: mapCase(c) });
+});
+
+// Previsualización del autoborrado (qué casos se borrarían). SOLO admin.
+// Debe ir ANTES de "/:id" para que no lo capture como id.
+casesRouter.get("/retention-preview", requireAdmin, async (_req, res) => {
+  res.json(await retentionPreview());
 });
 
 // Detalle de un caso.
@@ -112,6 +119,10 @@ const photoSchema = z.object({
 
 // Subir una foto del monitor. Permiso: admin, o propietario con el caso activo.
 casesRouter.post("/:id/photos", csrfGuard, async (req, res) => {
+  if (!dbFeatures.photos) {
+    res.status(503).json({ error: "La Vía 1 (fotos del monitor) no está disponible en el servidor.", code: "PHOTOS_UNAVAILABLE" });
+    return;
+  }
   const c = await cases.byId(req.params.id);
   if (!c) {
     res.status(404).json({ error: "Caso no encontrado" });
@@ -148,6 +159,10 @@ casesRouter.post("/:id/photos", csrfGuard, async (req, res) => {
 
 // Metadatos de las fotos de un caso (id, hora, mime, tamaño).
 casesRouter.get("/:id/photos", async (req, res) => {
+  if (!dbFeatures.photos) {
+    res.json({ photos: [] }); // Vía 1 desactivada: sin fotos
+    return;
+  }
   const c = await cases.byId(req.params.id);
   if (!c) {
     res.status(404).json({ error: "Caso no encontrado" });
@@ -158,6 +173,10 @@ casesRouter.get("/:id/photos", async (req, res) => {
 
 // Bytes de una foto (para incrustarla en el PDF o analizarla con Claude).
 casesRouter.get("/:id/photos/:photoId", async (req, res) => {
+  if (!dbFeatures.photos) {
+    res.status(404).json({ error: "Foto no encontrada" });
+    return;
+  }
   const photo = await casePhotos.get(req.params.photoId);
   if (!photo || photo.case_id !== req.params.id) {
     res.status(404).json({ error: "Foto no encontrada" });
@@ -170,6 +189,10 @@ casesRouter.get("/:id/photos/:photoId", async (req, res) => {
 
 // Borrar una foto. Permiso: admin, o propietario con el caso no firmado.
 casesRouter.delete("/:id/photos/:photoId", csrfGuard, async (req, res) => {
+  if (!dbFeatures.photos) {
+    res.status(503).json({ error: "La Vía 1 (fotos del monitor) no está disponible.", code: "PHOTOS_UNAVAILABLE" });
+    return;
+  }
   const c = await cases.byId(req.params.id);
   if (!c) {
     res.status(404).json({ error: "Caso no encontrado" });

@@ -2,15 +2,18 @@ import { useEffect, useState } from "react";
 import { api, ApiError, type AdminUserRow, type AuditEntry } from "../api";
 import { hhmmss, dmy } from "../utils/time";
 
+type RetentionPreview = Awaited<ReturnType<typeof api.retentionPreview>>;
+
 interface Props {
   onClose: () => void;
   onToast: (m: string) => void;
 }
 
 export function Admin({ onClose, onToast }: Props) {
-  const [tab, setTab] = useState<"users" | "audit">("users");
+  const [tab, setTab] = useState<"users" | "audit" | "retention">("users");
   const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
+  const [retention, setRetention] = useState<RetentionPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Alta de usuario
@@ -34,8 +37,17 @@ export function Admin({ onClose, onToast }: Props) {
   useEffect(() => {
     void loadUsers();
   }, []);
+  async function loadRetention() {
+    try {
+      setRetention(await api.retentionPreview());
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Error");
+    }
+  }
+
   useEffect(() => {
     if (tab === "audit") void loadAudit();
+    if (tab === "retention") void loadRetention();
   }, [tab]);
 
   async function createUser() {
@@ -90,6 +102,9 @@ export function Admin({ onClose, onToast }: Props) {
           </button>
           <button className={tab === "audit" ? "on" : ""} onClick={() => setTab("audit")}>
             Auditoría
+          </button>
+          <button className={tab === "retention" ? "on" : ""} onClick={() => setTab("retention")}>
+            Autoborrado
           </button>
         </div>
         {error && <div className="alert danger">{error}</div>}
@@ -155,6 +170,55 @@ export function Admin({ onClose, onToast }: Props) {
             </div>
           </div>
         </>
+      )}
+
+      {tab === "retention" && (
+        <div className="card">
+          <h2 style={{ fontSize: 16 }}>Autoborrado (RGPD)</h2>
+          {!retention ? (
+            <p className="sub">Cargando…</p>
+          ) : (
+            <>
+              <div className={`alert ${retention.dryRun ? "" : "danger"}`}>
+                {retention.dryRun ? (
+                  <>
+                    <strong>Modo simulación activado.</strong> No se borra ningún caso: esta lista solo muestra lo que se borraría.
+                  </>
+                ) : (
+                  <>
+                    <strong>Modo real activado.</strong> Los casos de esta lista se borran automáticamente.
+                  </>
+                )}
+                <div className="sub" style={{ marginTop: 4 }}>
+                  Se borran únicamente casos firmados y ya enviados por correo, tras {retention.retentionDays} días sin actividad.
+                </div>
+              </div>
+              {!retention.ok && <div className="alert danger">No se pudo calcular la lista (no se borrará nada): {retention.error}</div>}
+              <div className="section-title" style={{ margin: "10px 0 6px" }}>
+                Casos que se borrarían ({retention.cases.length})
+              </div>
+              {retention.cases.length === 0 ? (
+                <div className="empty">Ningún caso se borraría ahora mismo.</div>
+              ) : (
+                <div className="pill-list">
+                  {retention.cases.map((c) => (
+                    <div className="pill" key={c.ia}>
+                      <span className="m">
+                        <strong>{c.ia}</strong>
+                        <div className="sm">
+                          Estado: {c.status === "signed" ? "firmado" : c.status} · última actividad: {dmy(c.lastActivity)}
+                        </div>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button className="btn block" style={{ marginTop: 10 }} onClick={() => void loadRetention()}>
+                Actualizar
+              </button>
+            </>
+          )}
+        </div>
       )}
 
       {tab === "audit" && (
