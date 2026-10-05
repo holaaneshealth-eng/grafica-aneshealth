@@ -25,22 +25,34 @@ function normTime(t: string): string | null {
   return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
 }
 
-/** Clasifica la etiqueta de fila (texto del OCR, ruidoso) a código o "BP". */
-export function classifyLabel(label: string): { kind: "bp" | "single" | "unknown"; code?: string } {
-  const up = label.toUpperCase().replace(/\s+/g, "");
-  if (/NIBP|PANI|PNI|ABP|\bART\b|ARTM|IBP|^TA$|^P?A$/.test(up) || /\bTA\b/.test(label.toUpperCase())) return { kind: "bp" };
-  const map: { re: RegExp; code: string }[] = [
-    { re: /^HR$|^FC$|PULS|HEARTRATE/, code: "FC" },
-    { re: /SPO2|SPO₂|SAT|SPÜ2|SP02/, code: "SPO2" },
-    { re: /ETCO2|ETCO₂|^CO2$|ETC02/, code: "ETCO2" },
-    { re: /TEMP|^T$|^T°|^TEMP°?C?/, code: "TEMP" },
-    { re: /BIS/, code: "BIS" },
-    { re: /^VT$|VTE|TIDAL|VOLCORR|VC/, code: "VT" },
-    { re: /^FR$|RESP|RR/, code: "FR" },
-    { re: /PEEP/, code: "PEEP" },
-    { re: /FIO2|FIO₂|FI02/, code: "FIO2" },
+/**
+ * Clasifica la etiqueta de fila (texto del OCR, ruidoso).
+ * - "ignore": no se vuelca (FP duplica la FC; subtítulos "Origen: SpO2").
+ * - "bp": tensión arterial (invasiva/no invasiva) -> TAS/TAD/TAM.
+ * - "single": un único parámetro con su código.
+ * Vocabulario orientado al Mindray ePM (etiquetas en español).
+ */
+export function classifyLabel(label: string): { kind: "bp" | "single" | "unknown" | "ignore"; code?: string } {
+  const up = label.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (!up) return { kind: "unknown" };
+  if (up.includes("ORIGEN")) return { kind: "ignore" }; // subtítulo "Origen: SpO2"
+  if (/^FP$/.test(up)) return { kind: "ignore" }; // frecuencia de pulso (duplica la FC)
+  // Tensión arterial no invasiva (PANI/PNI/NIBP) e invasiva (PA/ART/ABP/IBP) -> s/d (media)
+  if (/^(NIBP|PANI|PNI|PA|ABP|ART|ARTM|IBP|TA)$/.test(up)) return { kind: "bp" };
+  const singles: [RegExp, string][] = [
+    [/^(FC|HR)$/, "FC"],
+    [/^(SPO2|SP02|SPÜ2|SAT|SATO2)$/, "SPO2"],
+    [/^(ETCO2|ETC02)$/, "ETCO2"],
+    [/^(FICO2|FIC02)$/, "FICO2"],
+    [/^(FR|RESP|RR)$/, "FR"],
+    [/^(PVC|CVP)$/, "PVC"],
+    [/^BIS$/, "BIS"],
+    [/^(VT|VTE|TIDAL)$/, "VT"],
+    [/^PEEP$/, "PEEP"],
+    [/^(FIO2|FI02)$/, "FIO2"],
+    [/^(TEMP|TEMPC|T|TC|T1|T2|TEMP1|TEMP2)$/, "TEMP"],
   ];
-  for (const m of map) if (m.re.test(up)) return { kind: "single", code: m.code };
+  for (const [re, code] of singles) if (re.test(up)) return { kind: "single", code };
   return { kind: "unknown" };
 }
 
@@ -73,7 +85,10 @@ export interface ParseResult {
   readings: VisionReading[];
   columns: number; // nº de columnas horarias detectadas
   rows: number; // nº de filas de parámetros detectadas
+  detectedDate?: string; // fecha de la cabecera del monitor (YYYY-MM-DD) si se lee
 }
+
+const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 /**
  * Convierte las palabras OCR en lecturas {hora, parametro, valor}.
@@ -110,6 +125,15 @@ export function parseTrendTable(words: OcrWord[]): ParseResult {
     return best;
   };
 
+  // Fecha de cabecera del monitor (si aparece), p. ej. "2026-10-05".
+  let detectedDate: string | undefined;
+  for (const w of words) {
+    if (DATE_RE.test(w.text.trim())) {
+      detectedDate = w.text.trim();
+      break;
+    }
+  }
+
   const readings: VisionReading[] = [];
   let dataRows = 0;
   rows.forEach((r, i) => {
@@ -120,8 +144,11 @@ export function parseTrendTable(words: OcrWord[]): ParseResult {
     const label = labelWords.map((w) => w.text).join(" ").trim();
     if (!label) return;
     const cls = classifyLabel(label);
-    // Acumula el texto de cada celda (columna) por si el valor viene en varios tokens.
-    const valueWords = r.words.filter((w) => cx(w) >= firstColX - 1);
+    if (cls.kind === "ignore") return; // FP y subtítulos "Origen: SpO2" no se vuelcan
+    // Valores de la fila; se descartan la hora de medición (sello 07:39) y subtítulos.
+    const valueWords = r.words.filter(
+      (w) => cx(w) >= firstColX - 1 && !TIME_RE.test(w.text.trim()) && !/origen/i.test(w.text),
+    );
     if (valueWords.length === 0) return;
     const cells = new Map<number, string[]>();
     for (const w of valueWords) {
@@ -152,5 +179,5 @@ export function parseTrendTable(words: OcrWord[]): ParseResult {
     if (used) dataRows++;
   });
 
-  return { readings, columns: headerTimes.length, rows: dataRows };
+  return { readings, columns: headerTimes.length, rows: dataRows, detectedDate };
 }
