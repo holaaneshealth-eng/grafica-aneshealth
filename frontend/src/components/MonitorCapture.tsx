@@ -6,6 +6,7 @@ import { hhmm } from "../utils/time";
 import { compressMonitorPhoto, formatBytes, VIA1_PHOTO_MODE } from "../vision/compress";
 import { VitalsModal } from "./VitalsModal";
 import { VisionImportModal } from "./VisionImportModal";
+import { PhotoCropModal } from "./PhotoCropModal";
 
 interface Props {
   cs: CaseState;
@@ -28,6 +29,7 @@ export function MonitorCapture({ cs, onToast }: Props) {
   const [busy, setBusy] = useState(false);
   const [manual, setManual] = useState(false);
   const [vision, setVision] = useState<{ initial?: { dataUrl: string; mime: string }[] } | null>(null);
+  const [cropFile, setCropFile] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const via = cs.monitorVia;
@@ -64,13 +66,18 @@ export function MonitorCapture({ cs, onToast }: Props) {
     }
   }
 
-  async function onPickPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+  function onPickPhoto(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (fileRef.current) fileRef.current.value = "";
     if (!file) return;
+    setCropFile(file); // primero el recorte manual (o "usar foto entera")
+  }
+
+  async function onCropped(blob: Blob) {
+    setCropFile(null);
     setBusy(true);
     try {
-      const c = await compressMonitorPhoto(file, { mode: VIA1_PHOTO_MODE });
+      const c = await compressMonitorPhoto(blob, { mode: VIA1_PHOTO_MODE });
       const r = await api.addPhoto(cs.caseId, { imageBase64: c.dataUrl, mimeType: "image/jpeg", takenAt: new Date().toISOString() });
       await refreshPhotos();
       onToast?.(`Foto guardada · ${formatBytes(r.photo.byte_size)}`);
@@ -200,6 +207,7 @@ export function MonitorCapture({ cs, onToast }: Props) {
         </>
       )}
 
+      {cropFile && <PhotoCropModal file={cropFile} onCancel={() => setCropFile(null)} onConfirm={onCropped} />}
       {manual && <VitalsModal cs={cs} group="monitor" onClose={() => setManual(false)} onDone={(m) => onToast?.(m)} />}
       {vision && (
         <VisionImportModal
