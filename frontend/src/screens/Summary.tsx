@@ -4,11 +4,12 @@ import html2canvas from "html2canvas";
 import type { CaseState } from "../domain/events";
 import { useStore } from "../store/store";
 import { AnesthesiaChart, CHARTED } from "../components/AnesthesiaChart";
-import { generateGraphicPages } from "../pdf";
+import { generateGraphicPages, type ChartPhoto } from "../pdf";
 import { api, ApiError } from "../api";
 import { dmy, hhmm } from "../utils/time";
 import { STANDARD_PARAMS } from "../domain/monitoring";
 import { formatNum } from "../domain/calculations";
+import { techniqueDetailLines } from "../domain/techniqueRender";
 import { WHO_PHASES } from "../domain/clinical";
 
 interface Props {
@@ -66,10 +67,11 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
     const chartBlock = chartBlockRef.current;
     try {
       const pdf = new jsPDF("l", "mm", "a4");
-      generateGraphicPages(pdf, cs, true);
-
-      // Fotos del monitor (Vía 1): una por página, justo DESPUÉS de la gráfica, por hora.
-      await addMonitorPhotoPages(pdf, cs.caseId, cs.ia);
+      // Vía 1: las fotos se incrustan DENTRO de las páginas de gráfica (sustituyen a la
+      // banda hemodinámica y a las filas del monitor). Ya no hay página aparte.
+      const via1 = cs.monitorVia === 1;
+      const photos = via1 ? await loadVia1Photos(cs.caseId) : [];
+      generateGraphicPages(pdf, cs, { reuseFirstPage: true, via1, photos });
 
       if (chartBlock) chartBlock.style.display = "none";
       const canvas = await renderCanvas(sheetRef.current!);
@@ -98,9 +100,10 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
         pdf.setTextColor(90);
         pdf.text(`Hoja Anestésica · ${cs.ia}`, 6, 6);
         pdf.text(dmy(cs.createdAt), pw - 6, 6, { align: "right" });
-        pdf.text(`Página ${p + 1}/${pages} (datos)`, pw - 6, ph - 2.5, { align: "right" });
         pdf.text(cs.signedAt ? `Firmado: ${cs.signedBy}` : "Documento pseudonimizado (RGPD)", 6, ph - 2.5);
       }
+      // Numeración ÚNICA y consecutiva de TODO el documento (gráfica + datos).
+      stampPageNumbers(pdf);
       return pdf;
     } finally {
       if (chartBlock) chartBlock.style.display = "";
@@ -362,12 +365,7 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
                       <td style={{ width: 44 }}>{hhmm(t.at)}</td>
                       <td>
                         <strong style={{ fontSize: 14 }}>{t.label}</strong>
-                        <div style={{ fontSize: 12.5, color: "#222" }}>
-                          {Object.entries(t.details)
-                            .filter(([, v]) => v !== "" && v != null)
-                            .map(([k, v]) => `${k}: ${String(v)}`)
-                            .join(" | ")}
-                        </div>
+                        <div style={{ fontSize: 12.5, color: "#222" }}>{techniqueDetailLines(t).join(" | ")}</div>
                       </td>
                     </tr>
                   ))}
@@ -540,12 +538,7 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
                     <td style={{ width: 66, whiteSpace: "nowrap" }}>{hhmm(t.at)}</td>
                     <td>
                       <div className="tech-label">{t.label}</div>
-                      <div className="tech-detail">
-                        {Object.entries(t.details)
-                          .filter(([, v]) => v !== "" && v != null)
-                          .map(([k, v]) => `${k}: ${String(v)}`)
-                          .join(" | ")}
-                      </div>
+                      <div className="tech-detail">{techniqueDetailLines(t).join(" | ")}</div>
                     </td>
                   </tr>
                 ))}
@@ -610,43 +603,44 @@ async function fetchPhotoDataUrl(caseId: string, photoId: string): Promise<strin
     fr.readAsDataURL(b);
   });
 }
-async function addMonitorPhotoPages(pdf: jsPDF, caseId: string, ia: string): Promise<void> {
-  let photos: { id: string; taken_at: string }[] = [];
+async function loadVia1Photos(caseId: string): Promise<ChartPhoto[]> {
+  let metas: { id: string; taken_at: string }[] = [];
   try {
-    photos = (await api.listPhotos(caseId)).photos;
+    metas = (await api.listPhotos(caseId)).photos;
   } catch {
-    return; // sin conexión o sin fotos
+    return [];
   }
-  const sorted = photos.slice().sort((a, b) => a.taken_at.localeCompare(b.taken_at));
+  const sorted = metas.slice().sort((a, b) => a.taken_at.localeCompare(b.taken_at));
+  const out: ChartPhoto[] = [];
   for (const ph of sorted) {
-    let dataUrl: string | null = null;
     try {
-      dataUrl = await fetchPhotoDataUrl(caseId, ph.id);
-    } catch {
-      dataUrl = null;
-    }
-    if (!dataUrl) continue;
-    pdf.addPage("a4", "landscape");
-    const pw = pdf.internal.pageSize.getWidth();
-    const ph2 = pdf.internal.pageSize.getHeight();
-    pdf.setFontSize(11);
-    pdf.setTextColor(30);
-    pdf.text(`Registro del monitor (imagen) · ${ia}`, 6, 8);
-    pdf.setFontSize(10);
-    pdf.setTextColor(90);
-    pdf.text(`${dmy(ph.taken_at)} ${hhmm(ph.taken_at)}`, pw - 6, 8, { align: "right" });
-    const topY = 12;
-    const availW = pw - 12;
-    const availH = ph2 - topY - 6;
-    try {
+      const dataUrl = await fetchPhotoDataUrl(caseId, ph.id);
+      if (!dataUrl) continue;
       const img = await loadImgEl(dataUrl);
-      const scale = Math.min(availW / img.width, availH / img.height);
-      const w = img.width * scale;
-      const h = img.height * scale;
-      pdf.addImage(dataUrl, "JPEG", (pw - w) / 2, topY, w, h);
+      out.push({ at: new Date(ph.taken_at).getTime(), dataUrl, w: img.naturalWidth || img.width, h: img.naturalHeight || img.height });
     } catch {
-      /* imagen ilegible: página con solo el encabezado */
+      /* se omite la foto que no se pueda cargar */
     }
+  }
+  return out;
+}
+
+// Numeración ÚNICA y consecutiva "Página X de Y" en TODAS las páginas (gráfica + datos),
+// abajo a la derecha, con fondo blanco para que siempre se lea.
+function stampPageNumbers(pdf: jsPDF): void {
+  const total = pdf.getNumberOfPages();
+  for (let i = 1; i <= total; i++) {
+    pdf.setPage(i);
+    const pw = pdf.internal.pageSize.getWidth();
+    const ph = pdf.internal.pageSize.getHeight();
+    const label = `Página ${i} de ${total}`;
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(8);
+    const tw = pdf.getTextWidth(label);
+    pdf.setFillColor(255, 255, 255);
+    pdf.rect(pw - 6 - tw - 1.5, ph - 5.4, tw + 3, 4.4, "F");
+    pdf.setTextColor(90, 90, 90);
+    pdf.text(label, pw - 6, ph - 2.4, { align: "right" });
   }
 }
 

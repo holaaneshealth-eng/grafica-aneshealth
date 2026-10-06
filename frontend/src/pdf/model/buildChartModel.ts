@@ -5,8 +5,10 @@ import { dmy } from "../../utils/time";
 import { milestoneCode } from "../config/milestones";
 import { resolveAlarmRange, isOutOfRange } from "../config/alarmRanges";
 import { HEMO_CODES, FIXED_CODES, VENTMODE_CODE } from "../config/chartParams";
+import { RESP_MEASURED_CODES } from "../../domain/monitoring";
 import type {
   ChartModel,
+  ChartPhoto,
   DrugRow,
   DrugInfusionSegment,
   FixedRow,
@@ -67,9 +69,17 @@ function buildSegments(inf: InfusionRecord, endAt: number): Seg[] {
   return segs;
 }
 
-export function buildChartModel(cs: CaseState): ChartModel {
+export interface BuildOptions {
+  via1?: boolean;
+  photos?: ChartPhoto[];
+}
+
+export function buildChartModel(cs: CaseState, opts: BuildOptions = {}): ChartModel {
+  const via1 = !!opts.via1;
+  const photos = (opts.photos ?? []).slice().sort((a, b) => a.at - b.at);
   // ---- límites temporales ----
   const times: number[] = [ms(cs.createdAt)];
+  photos.forEach((p) => times.push(p.at));
   cs.vitals.forEach((v) => times.push(ms(v.at)));
   cs.boluses.forEach((b) => times.push(ms(b.at)));
   cs.infusions.forEach((i) => {
@@ -111,6 +121,9 @@ export function buildChartModel(cs: CaseState): ChartModel {
     if (seen.has(code)) continue;
     seen.add(code);
     if (HEMO_CODES.includes(code) || FIXED_CODES.includes(code)) continue;
+    // Vía 1: en la gráfica solo se mantienen las filas del respirador (las del monitor
+    // se sustituyen por las fotos). Los parámetros medidos del monitor se omiten aquí.
+    if (via1 && !RESP_MEASURED_CODES.includes(code)) continue;
     if (!presentCodes.has(code)) continue;
     const param = findParam(code, cs.monitoring.custom);
     const unit = prettyUnit(param?.unit ?? "");
@@ -250,5 +263,7 @@ export function buildChartModel(cs: CaseState): ChartModel {
     fluidInputs,
     fluidOutputs,
     milestones,
+    via1,
+    photos,
   };
 }

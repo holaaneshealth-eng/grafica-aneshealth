@@ -1,6 +1,7 @@
 import type { jsPDF } from "jspdf";
 import type {
   ChartModel,
+  ChartPhoto,
   MeasuredRow,
   FixedRow,
   DrugRow,
@@ -73,6 +74,20 @@ interface PageSpec {
   window: TimeWindow;
   contIndex: number; // 0 = primera hoja de la ventana
   blocks: Block[];
+  photos?: ChartPhoto[]; // Vía 1: fotos a incrustar en esta página
+  photoAreaH?: number; // alto (mm) reservado arriba para las fotos
+}
+
+// Vía 1: constantes de maquetación de las fotos.
+const PHOTO_GAP = 4; // mm entre fotos
+const PHOTO_CAPTION_H = 5; // mm para la hora bajo cada foto
+const PHOTO_MIN_W = 60; // ancho mínimo legible impreso (mm)
+
+function photoCapacity(areaH: number, areaW: number): number {
+  const cols = Math.max(1, Math.floor((areaW + PHOTO_GAP) / (PHOTO_MIN_W + PHOTO_GAP)));
+  const rowMinH = PHOTO_MIN_W * 0.68 + PHOTO_CAPTION_H; // alto mínimo de una fila de fotos
+  const rows = Math.max(1, Math.floor((areaH + PHOTO_GAP) / (rowMinH + PHOTO_GAP)));
+  return Math.max(1, cols * rows);
 }
 
 const TIME = (epoch: number) =>
@@ -134,7 +149,38 @@ export function renderChart(doc: jsPDF, model: ChartModel, reuseFirstPage = true
   // --- construir páginas por ventana ---
   const windows = buildWindows(model.startAt, model.endAt);
   const pages: PageSpec[] = [];
+  const photoAreaW = pageW - 2 * MARGIN;
   for (const w of windows) {
+    if (model.via1) {
+      // Vía 1: sin banda hemodinámica. Las fotos de la franja ocupan la parte superior;
+      // debajo, las bandas (respirador/fármacos/líquidos). Las fotos sobrantes pasan a
+      // hojas de continuación de la misma franja.
+      const bandsBlocks: Block[] = bands.map((band) => ({ t: "band", band }) as Block);
+      const bandsH = bandsBlocks.reduce((s, b) => s + blockMinH(b), 0);
+      const wphotos = model.photos.filter((p) => p.at >= w.start && p.at < w.end);
+      let contIndex = 0;
+      if (wphotos.length === 0) {
+        pages.push({ window: w, contIndex: contIndex++, blocks: bandsBlocks, photos: [], photoAreaH: 0 });
+        continue;
+      }
+      const firstArea = availH - bandsH;
+      let idx = 0;
+      if (firstArea >= PHOTO_MIN_W * 0.68 + PHOTO_CAPTION_H) {
+        const slice = wphotos.slice(0, photoCapacity(firstArea, photoAreaW));
+        idx = slice.length;
+        pages.push({ window: w, contIndex: contIndex++, blocks: bandsBlocks, photos: slice, photoAreaH: firstArea });
+      } else {
+        // Las bandas no dejan sitio legible: primera página solo bandas; fotos aparte.
+        pages.push({ window: w, contIndex: contIndex++, blocks: bandsBlocks, photos: [], photoAreaH: 0 });
+      }
+      while (idx < wphotos.length) {
+        const slice = wphotos.slice(idx, idx + photoCapacity(availH, photoAreaW));
+        idx += slice.length;
+        pages.push({ window: w, contIndex: contIndex++, blocks: [], photos: slice, photoAreaH: availH });
+      }
+      continue;
+    }
+
     const blocks: Block[] = [{ t: "hemo" }, ...bands.map((band) => ({ t: "band", band }) as Block)];
     let contIndex = 0;
     let cur: Block[] = [];
@@ -186,7 +232,7 @@ export function renderChart(doc: jsPDF, model: ChartModel, reuseFirstPage = true
     const placer = new Placer(doc, pageIdx, diag);
 
     drawHeader(doc, model, page);
-    drawFooter(doc, model, pageIdx, totalPages);
+    drawFooter(doc, model);
     drawGridAndAxis(doc, page.window, plotLeft, colWidth, gridTop, bottomY);
     drawMilestones(doc, model, page.window, plotLeft, colWidth, gridTop, bandsTop, bottomY);
 
@@ -198,29 +244,36 @@ export function renderChart(doc: jsPDF, model: ChartModel, reuseFirstPage = true
 
     // layout vertical de los bloques de esta página
     const bandBlocks = page.blocks.filter((b): b is { t: "band"; band: Band } => b.t === "band");
-    const totalRows = bandBlocks.reduce((s, b) => s + b.band.rows.length, 0);
-    const fixedH = page.blocks.reduce((s, b) => s + blockMinH(b), 0);
-    const leftover = Math.max(0, availH - fixedH);
-    const growPerRow = totalRows > 0 ? Math.min(MAX_ROW_MM - MIN_ROW_MM, leftover / totalRows) : 0;
-    const rowH = MIN_ROW_MM + growPerRow;
-
     let y = bandsTop;
-    for (const block of page.blocks) {
-      if (block.t === "hemo") {
-        drawHemoBand(doc, model, page.window, plotLeft, colWidth, y, HEMO_BAND_H, placer);
-        y += HEMO_BAND_H;
-      } else {
-        y = drawBand(doc, block.band, page.window, {
-          plotLeft,
-          plotRight,
-          colWidth,
-          totalColW,
-          labelColW,
-          y,
-          rowH,
-          isLast,
-          placer,
-        });
+
+    if (model.via1) {
+      // Vía 1: fotos de la franja arriba; bandas (respirador/fármacos/líquidos) debajo.
+      const photoH = page.photoAreaH ?? 0;
+      if (photoH > 0 && page.photos && page.photos.length) {
+        drawPhotoArea(doc, page.photos, MARGIN, pageW - MARGIN, bandsTop, photoH);
+        y = bandsTop + photoH;
+      }
+      const bandsMinH = bandBlocks.reduce((s, b) => s + blockMinH(b), 0);
+      const totalRows = bandBlocks.reduce((s, b) => s + b.band.rows.length, 0);
+      const remain = Math.max(0, bottomY - y - bandsMinH);
+      const growPerRow = totalRows > 0 ? Math.min(MAX_ROW_MM - MIN_ROW_MM, remain / totalRows) : 0;
+      const rowH = MIN_ROW_MM + growPerRow;
+      for (const b of bandBlocks) {
+        y = drawBand(doc, b.band, page.window, { plotLeft, plotRight, colWidth, totalColW, labelColW, y, rowH, isLast, placer });
+      }
+    } else {
+      const totalRows = bandBlocks.reduce((s, b) => s + b.band.rows.length, 0);
+      const fixedH = page.blocks.reduce((s, b) => s + blockMinH(b), 0);
+      const leftover = Math.max(0, availH - fixedH);
+      const growPerRow = totalRows > 0 ? Math.min(MAX_ROW_MM - MIN_ROW_MM, leftover / totalRows) : 0;
+      const rowH = MIN_ROW_MM + growPerRow;
+      for (const block of page.blocks) {
+        if (block.t === "hemo") {
+          drawHemoBand(doc, model, page.window, plotLeft, colWidth, y, HEMO_BAND_H, placer);
+          y += HEMO_BAND_H;
+        } else {
+          y = drawBand(doc, block.band, page.window, { plotLeft, plotRight, colWidth, totalColW, labelColW, y, rowH, isLast, placer });
+        }
       }
     }
     placer.flushFootnotes();
@@ -377,17 +430,14 @@ function drawHeader(doc: jsPDF, model: ChartModel, page: PageSpec) {
   doc.line(MARGIN, MARGIN + HEADER_H - 1, A4_LANDSCAPE.w - MARGIN, MARGIN + HEADER_H - 1);
 }
 
-function drawFooter(doc: jsPDF, model: ChartModel, pageIdx: number, total: number) {
+function drawFooter(doc: jsPDF, model: ChartModel) {
   const yBase = A4_LANDSCAPE.h - MARGIN;
   doc.setDrawColor(150, 150, 150);
   doc.setLineWidth(0.2);
   doc.line(MARGIN, yBase - FOOTER_H + 1, A4_LANDSCAPE.w - MARGIN, yBase - FOOTER_H + 1);
 
-  // (las llamadas al pie las imprime el placer en flushFootnotes, justo debajo del separador)
-
-  doc.setFontSize(FONT_AXIS_PT);
-  doc.setTextColor(30, 30, 30);
-  doc.text(`Página ${pageIdx + 1} de ${total}`, MARGIN, yBase - 1.3);
+  // (la numeración de página "Página X de Y" la estampa el generador del PDF al final,
+  //  de forma única y consecutiva para TODO el documento. Aquí solo va la leyenda.)
 
   const legend =
     milestoneLegend(model.milestones.map((m) => m.label)) +
@@ -555,6 +605,49 @@ function drawHemoBand(
   doc.setDrawColor(170);
   doc.setLineWidth(0.2);
   doc.line(MARGIN, y + h, plotRight, y + h);
+}
+
+// ---------- fotos del monitor (Vía 1) ----------
+function drawPhotoArea(doc: jsPDF, photos: ChartPhoto[], x0: number, x1: number, y0: number, areaH: number) {
+  const areaW = x1 - x0;
+  // Fondo blanco: tapa la rejilla y las líneas de hitos tras las fotos.
+  doc.setFillColor(255, 255, 255);
+  doc.rect(x0, y0, areaW, areaH, "F");
+  const n = photos.length;
+  if (!n) return;
+  const maxCols = Math.max(1, Math.floor((areaW + PHOTO_GAP) / (PHOTO_MIN_W + PHOTO_GAP)));
+  const cols = Math.min(n, maxCols);
+  const rows = Math.ceil(n / cols);
+  const cellW = (areaW - (cols - 1) * PHOTO_GAP) / cols;
+  const cellH = (areaH - (rows - 1) * PHOTO_GAP) / rows;
+  photos.forEach((p, i) => {
+    const r = Math.floor(i / cols);
+    const c = i % cols;
+    const cx = x0 + c * (cellW + PHOTO_GAP);
+    const cy = y0 + r * (cellH + PHOTO_GAP);
+    const availPhotoH = Math.max(1, cellH - PHOTO_CAPTION_H);
+    const aspect = p.w > 0 && p.h > 0 ? p.w / p.h : 4 / 3;
+    // Mayor tamaño posible manteniendo la proporción dentro de la celda.
+    let dw = cellW;
+    let dh = dw / aspect;
+    if (dh > availPhotoH) {
+      dh = availPhotoH;
+      dw = dh * aspect;
+    }
+    const px = cx + (cellW - dw) / 2;
+    const py = cy + (availPhotoH - dh) / 2;
+    try {
+      doc.addImage(p.dataUrl, "JPEG", px, py, dw, dh);
+    } catch {
+      /* imagen ilegible: se deja el marco con la hora */
+    }
+    doc.setDrawColor(120, 120, 120);
+    doc.setLineWidth(0.3);
+    doc.rect(px, py, dw, dh, "S"); // marco fino
+    doc.setFontSize(FONT_AXIS_PT);
+    doc.setTextColor(60, 60, 60);
+    doc.text(TIME(p.at), cx + cellW / 2, cy + cellH - 1, { align: "center" }); // hora debajo
+  });
 }
 
 // ---------- bandas de filas ----------
