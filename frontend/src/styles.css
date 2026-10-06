@@ -420,35 +420,55 @@ textarea {
 /* ---------- Vitals quick entry ---------- */
 .vital-grid {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
+  grid-template-columns: 1fr 1fr; /* dos columnas también en móvil (TA no invasiva / invasiva) */
+  gap: 8px;
 }
+/* Celda apilada: etiqueta arriba, controles (− valor +) debajo. Así entran DOS columnas
+   completas en un iPhone en vertical sin desplazamiento horizontal. */
 .vital-row {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  padding: 8px 10px;
+  padding: 8px;
+}
+.vital-row .vhead {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
 }
 .vital-row .vname {
-  flex: 1;
-  min-width: 0; /* permite que el nombre se ajuste y evita el scroll horizontal */
   font-weight: 600;
+  font-size: 13px;
+  line-height: 1.15;
+  min-width: 0;
+  overflow-wrap: anywhere; /* nunca fuerza scroll horizontal */
 }
 .vital-row .vunit {
   color: var(--text-dim);
-  width: 46px;
+  font-size: 11px;
   flex-shrink: 0;
-  font-size: 13px;
 }
-.vital-row input {
-  width: 64px;
-  flex-shrink: 0;
+.vital-row .vctrls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.vital-row .vctrls input {
+  flex: 1 1 auto;
+  min-width: 0; /* el campo cede espacio para que el botón "+" nunca se salga */
+  width: auto;
   text-align: center;
-  font-size: 19px;
+  font-size: 18px;
   font-variant-numeric: tabular-nums;
+}
+.vital-row .vctrls .stepper {
+  width: 38px;
+  flex-shrink: 0;
 }
 .stepper {
   width: 40px;

@@ -19,8 +19,22 @@ export function VitalsModal({ cs, onClose, onDone, initialTime, edit, group }: P
   const append = useStore((s) => s.append);
 
   // Secciones a mostrar: una (si se fija grupo) o las dos (Respirador + Monitor).
+  // En Monitor, la rejilla de 2 columnas se rellena por filas, así que intercalamos
+  // la TA para que queden emparejadas: izquierda NO invasiva, derecha invasiva
+  // (TAS, TAD, TAM de arriba abajo). El resto fluye después.
   const sections = useMemo(() => {
-    const mk = (g: ParamGroup, title: string) => ({ g, title, params: paramsByGroup(g, cs.monitoring.custom) });
+    const MONITOR_ORDER = ["TAS", "PAIS", "TAD", "PAID", "TAM", "PAIM", "FC", "SPO2", "TEMP", "PVC", "BIS"];
+    const mk = (g: ParamGroup, title: string) => {
+      let params = paramsByGroup(g, cs.monitoring.custom);
+      if (g === "monitor") {
+        const rank = (c: string) => {
+          const i = MONITOR_ORDER.indexOf(c);
+          return i < 0 ? 999 : i; // los personalizados (C_*) quedan al final, en su orden
+        };
+        params = params.slice().sort((a, b) => rank(a.code) - rank(b.code));
+      }
+      return { g, title, params };
+    };
     if (group === "resp") return [mk("resp", "Respirador")];
     if (group === "monitor") return [mk("monitor", "Monitor")];
     return [mk("resp", "Respirador"), mk("monitor", "Monitor")];
@@ -91,20 +105,24 @@ export function VitalsModal({ cs, onClose, onDone, initialTime, edit, group }: P
               const step = p.code === "TEMP" || p.code === "CAM" ? 0.1 : 1;
               return (
                 <div className="vital-row" key={p.code} style={out ? { borderColor: "var(--warn)" } : undefined}>
-                  <span className="vname">{p.label}</span>
-                  <span className="vunit">{p.unit}</span>
-                  <button className="stepper" onClick={() => bump(p.code, -step)} aria-label="menos">
-                    −
-                  </button>
-                  <input
-                    inputMode="decimal"
-                    type="text"
-                    value={raw ?? ""}
-                    onChange={(e) => setValues((v) => ({ ...v, [p.code]: e.target.value }))}
-                  />
-                  <button className="stepper" onClick={() => bump(p.code, step)} aria-label="más">
-                    +
-                  </button>
+                  <div className="vhead">
+                    <span className="vname">{p.label}</span>
+                    {p.unit && <span className="vunit">{p.unit}</span>}
+                  </div>
+                  <div className="vctrls">
+                    <button className="stepper" onClick={() => bump(p.code, -step)} aria-label="menos">
+                      −
+                    </button>
+                    <input
+                      inputMode="decimal"
+                      type="text"
+                      value={raw ?? ""}
+                      onChange={(e) => setValues((v) => ({ ...v, [p.code]: e.target.value }))}
+                    />
+                    <button className="stepper" onClick={() => bump(p.code, step)} aria-label="más">
+                      +
+                    </button>
+                  </div>
                 </div>
               );
             })}
