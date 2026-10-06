@@ -204,6 +204,27 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
 
   // Firma la hoja y, acto seguido, envía el PDF por correo (sustituye al envío de imagen).
   function signAndSend() {
+    // Aviso: perfusiones sin registrar su parada. Se ofrece registrarla antes de firmar.
+    const open = cs.infusions.filter((i) => i.active);
+    if (open.length > 0) {
+      const salida = cs.milestones.find((m) => /salida/i.test(m.label));
+      const stopIso = cs.endedAt ?? salida?.at ?? new Date().toISOString();
+      const names = open.map((i) => i.drug).join(", ");
+      const ok = window.confirm(
+        `Hay ${open.length} perfusión(es) sin parar: ${names}.\n\n¿Registrar su parada a las ${hhmm(stopIso)} antes de firmar?\n\nAceptar: registra la parada y firma. Cancelar: firma sin pararlas (en la gráfica terminarán al fin de anestesia).`,
+      );
+      if (ok) {
+        for (const inf of open) {
+          const base = { id: inf.id, drug: inf.drug, rateMlH: 0, weightBasedDose: 0, summary: "Fin" };
+          const payload = inf.gas
+            ? { ...base, gas: true, gasPercent: 0, doseUnit: "% esp" }
+            : inf.tci
+              ? { ...base, tci: inf.tci, doseUnit: inf.doseUnit }
+              : { ...base, doseUnit: inf.doseUnit || "ml/h" };
+          append(cs.caseId, "INFUSION_RATE_CHANGED", payload, stopIso);
+        }
+      }
+    }
     const prior = getCaseEvents(cs.caseId).filter((e) => e.type === "CASE_SIGNED").length;
     const who = useStore.getState().user?.displayName ?? "";
     append(cs.caseId, "CASE_SIGNED", { signedBy: who });

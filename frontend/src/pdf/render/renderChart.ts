@@ -32,7 +32,12 @@ import {
   ptToMm,
 } from "../units";
 import { buildWindows, xOf, isQuarterColumn, type TimeWindow } from "../layout/timeScale";
-import { COLS_PER_PAGE } from "../units";
+import { COLS_PER_PAGE, COL_MINUTES } from "../units";
+
+/** Nº de columnas (5 min) realmente usadas por una ventana (la última puede ir recortada). */
+function windowCols(w: TimeWindow): number {
+  return Math.min(COLS_PER_PAGE, Math.max(1, Math.round((w.end - w.start) / (COL_MINUTES * 60 * 1000))));
+}
 import { registerFonts, FONT } from "../fonts/register";
 
 // ---------- diagnósticos (para verificación automática) ----------
@@ -229,6 +234,7 @@ export function renderChart(doc: jsPDF, model: ChartModel, reuseFirstPage = true
     // aparece por última vez), no sólo en la última página física.
     const isLast = page.window.index === lastWindowIndex;
     const placer = new Placer(doc, pageIdx, diag);
+    const winRight = plotLeft + windowCols(page.window) * colWidth; // borde derecho real (recortado)
 
     drawHeader(doc, model, page);
     drawFooter(doc, model);
@@ -247,10 +253,10 @@ export function renderChart(doc: jsPDF, model: ChartModel, reuseFirstPage = true
         if (hasTotals && isLast) {
           doc.setFontSize(FONT_LABEL_PT);
           doc.setTextColor(60, 60, 60);
-          doc.text("Total", plotRight + totalColW / 2, gridTop + 2.6, { align: "center" });
+          doc.text("Total", winRight + totalColW / 2, gridTop + 2.6, { align: "center" });
         }
         for (const b of bandBlocks) {
-          y = drawBand(doc, b.band, page.window, { plotLeft, plotRight, colWidth, totalColW, labelColW, y, rowH: VIA1_ROW_H, isLast, placer });
+          y = drawBand(doc, b.band, page.window, { plotLeft, plotRight, rightEdge: winRight, colWidth, totalColW, labelColW, y, rowH: VIA1_ROW_H, isLast, placer });
         }
         if (page.photos && page.photos.length) {
           const secTop = bandsEndY + PHOTO_SECTION_GAP;
@@ -276,7 +282,7 @@ export function renderChart(doc: jsPDF, model: ChartModel, reuseFirstPage = true
       if (hasTotals && isLast) {
         doc.setFontSize(FONT_LABEL_PT);
         doc.setTextColor(60, 60, 60);
-        doc.text("Total", plotRight + totalColW / 2, gridTop + 2.6, { align: "center" });
+        doc.text("Total", winRight + totalColW / 2, gridTop + 2.6, { align: "center" });
       }
       const totalRows = bandBlocks.reduce((s, b) => s + b.band.rows.length, 0);
       const fixedH = page.blocks.reduce((s, b) => s + blockMinH(b), 0);
@@ -285,10 +291,10 @@ export function renderChart(doc: jsPDF, model: ChartModel, reuseFirstPage = true
       const rowH = MIN_ROW_MM + growPerRow;
       for (const block of page.blocks) {
         if (block.t === "hemo") {
-          drawHemoBand(doc, model, page.window, plotLeft, colWidth, y, HEMO_BAND_H, placer);
+          drawHemoBand(doc, model, page.window, plotLeft, colWidth, y, HEMO_BAND_H, winRight);
           y += HEMO_BAND_H;
         } else {
-          y = drawBand(doc, block.band, page.window, { plotLeft, plotRight, colWidth, totalColW, labelColW, y, rowH, isLast, placer });
+          y = drawBand(doc, block.band, page.window, { plotLeft, plotRight, rightEdge: winRight, colWidth, totalColW, labelColW, y, rowH, isLast, placer });
         }
       }
     }
@@ -485,7 +491,8 @@ function drawFooter(doc: jsPDF, model: ChartModel) {
 
 // ---------- rejilla y eje ----------
 function drawGridAndAxis(doc: jsPDF, w: TimeWindow, plotLeft: number, colWidth: number, gridTop: number, bottomY: number) {
-  for (let c = 0; c <= COLS_PER_PAGE; c++) {
+  const cols = windowCols(w); // la última ventana dibuja solo hasta endAt (sin columnas vacías)
+  for (let c = 0; c <= cols; c++) {
     const x = plotLeft + c * colWidth;
     if (c % 3 === 0) {
       doc.setDrawColor(150);
@@ -495,9 +502,9 @@ function drawGridAndAxis(doc: jsPDF, w: TimeWindow, plotLeft: number, colWidth: 
       doc.setLineWidth(0.1);
     }
     doc.line(x, gridTop, x, bottomY);
-    if (c < COLS_PER_PAGE) {
+    if (c < cols) {
       if (isQuarterColumn(c)) {
-        const t = w.start + c * 5 * 60 * 1000;
+        const t = w.start + c * COL_MINUTES * 60 * 1000;
         doc.setFontSize(FONT_AXIS_PT);
         doc.setTextColor(70, 70, 70);
         doc.text(TIME(t), x + 1, gridTop + 2.6);
@@ -559,9 +566,9 @@ function drawHemoBand(
   colWidth: number,
   y: number,
   h: number,
-  _placer: Placer,
+  rightEdge: number,
 ) {
-  const plotRight = plotLeft + colWidth * COLS_PER_PAGE;
+  const plotRight = rightEdge;
   const padT = 4.5;
   const top = y + padT;
   const bottom = y + h - 2;
@@ -688,6 +695,7 @@ function drawPhotoArea(doc: jsPDF, photos: ChartPhoto[], x0: number, x1: number,
 interface BandCtx {
   plotLeft: number;
   plotRight: number;
+  rightEdge: number; // borde derecho real de la rejilla en esta ventana (recortada)
   colWidth: number;
   totalColW: number;
   labelColW: number;
@@ -706,18 +714,19 @@ function drawBand(doc: jsPDF, band: Band, w: TimeWindow, ctx: BandCtx): number {
   doc.setFont(FONT, "normal");
   y += BAND_TITLE_H;
 
+  const sepRight = ctx.rightEdge + (ctx.isLast ? ctx.totalColW : 0);
   for (const r of band.rows) {
     drawRow(doc, r, w, { ...ctx, y });
     // separador de fila
     doc.setDrawColor(238);
     doc.setLineWidth(0.1);
-    doc.line(MARGIN, y + ctx.rowH, ctx.plotRight + ctx.totalColW, y + ctx.rowH);
+    doc.line(MARGIN, y + ctx.rowH, sepRight, y + ctx.rowH);
     y += ctx.rowH;
   }
   // separador de banda
   doc.setDrawColor(170);
   doc.setLineWidth(0.2);
-  doc.line(MARGIN, y, ctx.plotRight + ctx.totalColW, y);
+  doc.line(MARGIN, y, sepRight, y);
   return y;
 }
 
@@ -731,7 +740,7 @@ function drawRowLabel(doc: jsPDF, label: string, y: number, h: number, labelColW
 }
 
 function drawRow(doc: jsPDF, r: Row, w: TimeWindow, ctx: BandCtx) {
-  const { y, rowH, plotLeft, plotRight, colWidth, totalColW, labelColW, isLast, placer } = ctx;
+  const { y, rowH, plotLeft, plotRight, colWidth, totalColW, labelColW, isLast, placer, rightEdge } = ctx;
   drawRowLabel(doc, rowLabel(r), y, rowH, labelColW);
   const mid = y + rowH / 2;
   const group = `${r.t}:${rowLabel(r)}:${w.index}`;
@@ -781,14 +790,15 @@ function drawRow(doc: jsPDF, r: Row, w: TimeWindow, ctx: BandCtx) {
       const labelX = seg.from >= w.start && seg.from < w.end ? xOf(seg.from, w, plotLeft, colWidth) : plotLeft;
       placer.place(seg.label, labelX + 0.6, mid - rowH * 0.22, y, y + rowH, group, "left");
     }
-    // bolos
+    // bolos: triángulo pequeño en el MINUTO EXACTO + dosis con unidad (p. ej. "8 mg")
     for (const b of r.row.boluses) {
       if (b.at < w.start || b.at >= w.end) continue;
       const x = xOf(b.at, w, plotLeft, colWidth);
-      doc.setFillColor(60, 60, 60);
-      doc.circle(x, mid + rowH * 0.22, 0.5, "F");
-      const txt = b.unit && b.unit !== r.row.unit ? `${formatNum(b.dose)} ${b.unit}` : formatNum(b.dose);
-      placer.place(txt, x + 0.8, mid + rowH * 0.22, y, y + rowH, group, "left");
+      const by = mid + rowH * 0.26;
+      const s = 0.9;
+      doc.setFillColor(40, 40, 40);
+      doc.triangle(x - s, by + s, x + s, by + s, x, by - s, "F");
+      placer.place(`${formatNum(b.dose)} ${b.unit}`, x + s + 0.6, by, y, y + rowH, group, "left");
     }
   } else if (r.t === "fluidIn") {
     for (const e of r.row.entries) {
@@ -819,7 +829,7 @@ function drawRow(doc: jsPDF, r: Row, w: TimeWindow, ctx: BandCtx) {
       const lines = doc.splitTextToSize(totalText, totalColW - 1) as string[];
       const lineH = ptToMm(FONT_MIN_PT) + 0.3;
       const startY = mid - ((lines.length - 1) * lineH) / 2 + lineH * 0.32;
-      lines.forEach((l, i) => doc.text(l, plotRight + totalColW - 0.5, startY + i * lineH, { align: "right" }));
+      lines.forEach((l, i) => doc.text(l, rightEdge + totalColW - 0.5, startY + i * lineH, { align: "right" }));
     }
   }
 }

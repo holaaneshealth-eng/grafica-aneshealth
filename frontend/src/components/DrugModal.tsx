@@ -20,6 +20,8 @@ const DOSE_UNITS: DoseRateUnit[] = ["mcg/kg/min", "mcg/kg/h", "mg/kg/h", "mg/kg/
 // Formatos seleccionables para el ritmo de perfusión (incluye TCI plasmática/efecto).
 const RATE_UNITS = ["ml/h", "mcg/kg/min", "mcg/kg/h", "mg/kg/h", "mg/kg/min", "TCI plasmática", "TCI efecto"];
 const FLUID_VOLUME = 500;
+// Vías de administración. Cada vía va en su propia fila en la gráfica.
+const ROUTES = ["IV", "Intradural", "Epidural", "Perineural", "Interfascial", "IM", "Subcutánea", "Inhalatoria", "Tópica", "Intranasal", "Oral"];
 
 export function DrugModal({ cs, onClose, onDone }: Props) {
   const append = useStore((s) => s.append);
@@ -30,6 +32,7 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
   // Bolus
   const [dose, setDose] = useState("");
   const [unit, setUnit] = useState("mg");
+  const [route, setRoute] = useState("IV"); // vía de administración (bolo/perfusión)
   const [conc, setConc] = useState(""); // neuroaxial %
   const [volml, setVolml] = useState(""); // neuroaxial ml
 
@@ -128,6 +131,8 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
       if (d.defaultUnit === "mg" || d.defaultUnit === "mcg") setAmountUnit(d.defaultUnit as MassUnit);
       if (d.infusionDoseUnit) setDoseUnit(d.infusionDoseUnit as DoseRateUnit);
       if (d.gas || d.fluid) setMode("infusion");
+      if (d.concVol) setRoute("Intradural");
+      else if (!d.gas && !d.fluid) setRoute("IV");
     }
     const running = cs.infusions.find((i) => i.active && i.drug.trim().toLowerCase() === name.trim().toLowerCase());
     if (running) setMode("infusion");
@@ -184,14 +189,14 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
     const at = isoFromLocalInput(time);
     if (isConcVol) {
       if (!drug || !concVolDose) return;
-      append(cs.caseId, "DRUG_BOLUS", { id: rid(), drug, dose: concVolDose, unit: "mg", at, concentration: parseFloat(conc.replace(",", ".")), volumeMl: parseFloat(volml.replace(",", ".")) }, at);
+      append(cs.caseId, "DRUG_BOLUS", { id: rid(), drug, dose: concVolDose, unit: "mg", at, route, concentration: parseFloat(conc.replace(",", ".")), volumeMl: parseFloat(volml.replace(",", ".")) }, at);
       onDone(`${drug} ${formatNum(concVolDose)} mg`);
       onClose();
       return;
     }
     const d = parseFloat(dose.replace(",", "."));
     if (!drug || !d) return;
-    append(cs.caseId, "DRUG_BOLUS", { id: rid(), drug, dose: d, unit, at }, at);
+    append(cs.caseId, "DRUG_BOLUS", { id: rid(), drug, dose: d, unit, at, route }, at);
     onDone(`${drug} ${formatNum(d)} ${unit} registrado`);
     onClose();
   }
@@ -226,7 +231,7 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
         cs.caseId,
         "INFUSION_STARTED",
         {
-          id: rid(), drug, tci: tciMode, tciUnit, tciModel: tciModel || undefined,
+          id: rid(), drug, route, tci: tciMode, tciUnit, tciModel: tciModel || undefined,
           amount: 0, amountUnit, diluentVolumeMl: 0, concentration: 0, concentrationUnit: tciUnit,
           rateMlH: target, weightBasedDose: target, doseUnit: `${tciUnit} (${modeLabel})`,
           summary: `${modeLabel} ${formatNum(target)} ${tciUnit}${tciModel ? ` (${tciModel})` : ""}`, startedAt: at, active: true,
@@ -241,7 +246,7 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
     if (w && w !== cs.preop.weightKg) append(cs.caseId, "WEIGHT_UPDATED", { weightKg: w });
     let summary = calc.summary;
     if (isPropofol && propofolMgKgH && !calc.doseUnit.startsWith("mg/kg/h")) summary = `${calc.summary} · ${formatNum(propofolMgKgH.weightBasedDose)} mg/kg/h`;
-    append(cs.caseId, "INFUSION_STARTED", { id: rid(), drug, amount: parseFloat(amount.replace(",", ".")), amountUnit, diluentVolumeMl: parseFloat(diluent.replace(",", ".")), concentration: calc.concentration, concentrationUnit: calc.concentrationUnit, rateMlH: calc.effRateMlH, weightBasedDose: calc.weightBasedDose, doseUnit: calc.doseUnit, summary, startedAt: at, active: true }, at);
+    append(cs.caseId, "INFUSION_STARTED", { id: rid(), drug, route, amount: parseFloat(amount.replace(",", ".")), amountUnit, diluentVolumeMl: parseFloat(diluent.replace(",", ".")), concentration: calc.concentration, concentrationUnit: calc.concentrationUnit, rateMlH: calc.effRateMlH, weightBasedDose: calc.weightBasedDose, doseUnit: calc.doseUnit, summary, startedAt: at, active: true }, at);
     onDone(`Perfusión ${drug} iniciada`);
     onClose();
   }
@@ -395,6 +400,17 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
             onChange={setTime}
             label={showChangeMode ? "Hora del cambio" : mode === "infusion" ? "Hora de inicio de la perfusión" : "Hora de administración"}
           />
+
+          {!showChangeMode && (mode === "bolus" || (mode === "infusion" && !isGas && !isFluid)) && (
+            <div className="field">
+              <label>Vía de administración</label>
+              <select value={route} onChange={(e) => setRoute(e.target.value)}>
+                {ROUTES.map((r) => (
+                  <option key={r}>{r}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {mode === "bolus" ? (
             isConcVol ? (

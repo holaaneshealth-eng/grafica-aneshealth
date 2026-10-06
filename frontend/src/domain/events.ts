@@ -100,6 +100,7 @@ export interface BolusRecord {
   dose: number;
   unit: string;
   at: string;
+  route?: string; // vía de administración (IV, intradural, epidural, perineural...)
   concentration?: number; // % (anestésicos locales neuroaxiales)
   volumeMl?: number; // ml administrados (anestésicos locales neuroaxiales)
 }
@@ -107,6 +108,7 @@ export interface BolusRecord {
 export interface InfusionRecord {
   id: string;
   drug: string;
+  route?: string; // vía de administración (IV por defecto; perineural, epidural...)
   amount: number;
   amountUnit: string;
   diluentVolumeMl: number;

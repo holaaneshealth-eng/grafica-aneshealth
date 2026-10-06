@@ -61,7 +61,7 @@ export function TemplatePanel({ cs, onDone, onClose, onStartInfusion }: Props) {
         dose = parseFloat(v.dose.replace(",", "."));
         if (!dose) continue;
       }
-      append(cs.caseId, "DRUG_BOLUS", { id: "r-" + Math.random().toString(36).slice(2, 8), drug: name, dose, unit: def?.defaultUnit ?? "mg", at, ...extra }, at);
+      append(cs.caseId, "DRUG_BOLUS", { id: "r-" + Math.random().toString(36).slice(2, 8), drug: name, dose, unit: def?.defaultUnit ?? "mg", at, route: "IV", ...extra }, at);
       count++;
     }
     onDone(count > 0 ? `${count} fármaco(s) registrados` : "Nada que registrar");

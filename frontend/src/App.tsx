@@ -154,7 +154,11 @@ export default function App() {
   function advanceFromPhase1() {
     if (cs && phase1Complete(cs)) {
       append(cs.caseId, "PHASE_COMPLETED", { from: "PREOP", next: "OR" });
-      append(cs.caseId, "MILESTONE", { id: "m-" + Date.now(), at: new Date().toISOString(), label: "Entrada en quirofano" });
+      // La "Entrada a quirófano" se crea sola al pasar de la valoración (PREOP) al quirófano,
+      // con la hora actual. Es un hito editable: el usuario puede ajustar su hora en
+      // Registro › Hitos si no coincide con la entrada real.
+      append(cs.caseId, "MILESTONE", { id: "m-" + Date.now(), at: new Date().toISOString(), label: "Entrada a quirófano" });
+      showToast("Entrada a quirófano registrada a la hora actual · ajústala en Registro › Hitos si no coincide");
     }
   }
   function endSurgery() {
