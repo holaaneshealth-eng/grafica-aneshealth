@@ -11,6 +11,15 @@ export function floorToQuarter(epoch: number): number {
   return d.getTime();
 }
 
+/** Redondea al múltiplo de columna (5 min) inmediatamente anterior. */
+export function floorToCol(epoch: number): number {
+  const d = new Date(epoch);
+  d.setSeconds(0, 0);
+  const m = d.getMinutes();
+  d.setMinutes(m - (m % COL_MINUTES));
+  return d.getTime();
+}
+
 export interface TimeWindow {
   index: number;
   start: number;
@@ -19,13 +28,16 @@ export interface TimeWindow {
 
 /** Ventanas de PAGE_MINUTES que cubren [startAt, endAt]. */
 export function buildWindows(startAt: number, endAt: number): TimeWindow[] {
-  const base = floorToQuarter(startAt);
-  const span = Math.max(endAt - base, 1);
+  const base = floorToCol(startAt); // alinear a 5 min (no al cuarto de hora)
+  const span = Math.max(endAt - base, COL_MINUTES * MIN_MS);
   const count = Math.max(1, Math.ceil(span / (PAGE_MINUTES * MIN_MS)));
   const windows: TimeWindow[] = [];
   for (let i = 0; i < count; i++) {
     const s = base + i * PAGE_MINUTES * MIN_MS;
-    windows.push({ index: i, start: s, end: s + PAGE_MINUTES * MIN_MS });
+    const full = s + PAGE_MINUTES * MIN_MS;
+    // La última ventana se recorta a endAt (no se rellena hasta los 120 min).
+    const end = Math.min(full, Math.max(endAt, s + COL_MINUTES * MIN_MS));
+    windows.push({ index: i, start: s, end });
   }
   return windows;
 }

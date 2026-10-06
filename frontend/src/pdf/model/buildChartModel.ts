@@ -63,7 +63,8 @@ function buildSegments(inf: InfusionRecord, endAt: number): Seg[] {
     } else {
       label = `${formatNum(ch.rateMlH)} ml/h`;
     }
-    segs.push({ from, to: inf.active && i === changes.length - 1 ? null : next, label });
+    // Perfusión sin parada registrada: la barra termina en el fin de anestesia / salida.
+    segs.push({ from, to: inf.active && i === changes.length - 1 ? endAt : next, label });
     first = false;
   }
   return segs;
@@ -77,24 +78,35 @@ export interface BuildOptions {
 export function buildChartModel(cs: CaseState, opts: BuildOptions = {}): ChartModel {
   const via1 = !!opts.via1;
   const photos = (opts.photos ?? []).slice().sort((a, b) => a.at - b.at);
-  // ---- límites temporales ----
-  const times: number[] = [ms(cs.createdAt)];
-  photos.forEach((p) => times.push(p.at));
-  cs.vitals.forEach((v) => times.push(ms(v.at)));
-  cs.boluses.forEach((b) => times.push(ms(b.at)));
-  cs.infusions.forEach((i) => {
-    times.push(ms(i.startedAt));
-    (i.changes ?? []).forEach((c) => times.push(ms(c.at)));
-    if (i.stoppedAt) times.push(ms(i.stoppedAt));
-  });
-  cs.milestones.forEach((m) => times.push(ms(m.at)));
-  cs.balances.forEach((b) => times.push(ms(b.at)));
-  cs.bloodProducts.forEach((b) => times.push(ms(b.at)));
-  if (cs.endedAt) times.push(ms(cs.endedAt));
 
-  const ent = cs.milestones.find((m) => milestoneCode(m.label) === "ENT");
-  const startAt = ent ? ms(ent.at) : Math.min(...times);
-  const endAt = Math.max(...times, startAt + 60 * 1000);
+  // ---- límites temporales ----
+  // La gráfica EMPIEZA 5 min antes del PRIMER evento registrado (fármaco, técnica, hito,
+  // constante, hemoderivado o balance), no en la entrada a quirófano.
+  const eventTimes: number[] = [];
+  cs.vitals.forEach((v) => eventTimes.push(ms(v.at)));
+  cs.boluses.forEach((b) => eventTimes.push(ms(b.at)));
+  cs.infusions.forEach((i) => {
+    eventTimes.push(ms(i.startedAt));
+    (i.changes ?? []).forEach((c) => eventTimes.push(ms(c.at)));
+    if (i.stoppedAt) eventTimes.push(ms(i.stoppedAt));
+  });
+  cs.techniques.forEach((t) => eventTimes.push(ms(t.at)));
+  cs.milestones.forEach((m) => eventTimes.push(ms(m.at)));
+  cs.balances.forEach((b) => eventTimes.push(ms(b.at)));
+  cs.bloodProducts.forEach((b) => eventTimes.push(ms(b.at)));
+  photos.forEach((p) => eventTimes.push(p.at));
+
+  const FIVE = 5 * 60 * 1000;
+  const firstEvent = eventTimes.length ? Math.min(...eventTimes) : ms(cs.createdAt);
+  const lastEvent = eventTimes.length ? Math.max(...eventTimes) : ms(cs.createdAt);
+  const salida = cs.milestones.find((m) => milestoneCode(m.label) === "SAL");
+  const salidaAt = salida ? ms(salida.at) : null;
+  // Fin de anestesia para cerrar perfusiones sin parada: fin de cirugía, o salida, o último evento.
+  const anesthesiaEndAt = cs.endedAt ? ms(cs.endedAt) : salidaAt ?? lastEvent;
+
+  const startAt = firstEvent - FIVE;
+  // La gráfica TERMINA 5 min tras la salida de quirófano (o el último evento), cubriendo todo.
+  const endAt = Math.max(lastEvent, salidaAt ?? anesthesiaEndAt) + FIVE;
 
   // ---- hemodinámica ----
   const sortedVitals = cs.vitals.slice().sort((a, b) => a.at.localeCompare(b.at));
@@ -163,19 +175,26 @@ export function buildChartModel(cs: CaseState, opts: BuildOptions = {}): ChartMo
 
   // ---- fármacos (perfusiones no-suero + bolos) ----
   const drugInfusions = cs.infusions.filter((i) => !i.fluid);
-  const drugNames: string[] = [];
-  const addName = (n: string) => {
-    if (!drugNames.includes(n)) drugNames.push(n);
+  const normRoute = (r?: string) => (r && r.trim() ? r.trim() : "");
+  // Agrupa por fármaco + VÍA de administración: cada vía tiene su propia fila.
+  const drugKeys: { drug: string; route: string }[] = [];
+  const seenDK = new Set<string>();
+  const addKey = (drug: string, route?: string) => {
+    const k = `${drug}||${normRoute(route)}`;
+    if (!seenDK.has(k)) {
+      seenDK.add(k);
+      drugKeys.push({ drug, route: normRoute(route) });
+    }
   };
-  cs.boluses.forEach((b) => addName(b.drug));
-  drugInfusions.forEach((i) => addName(i.drug));
+  cs.boluses.forEach((b) => addKey(b.drug, b.route));
+  drugInfusions.forEach((i) => addKey(i.drug, i.route));
 
-  const drugRows: DrugRow[] = drugNames.map((name) => {
+  const drugRows: DrugRow[] = drugKeys.map(({ drug, route }) => {
     const boluses = cs.boluses
-      .filter((b) => b.drug === name)
+      .filter((b) => b.drug === drug && normRoute(b.route) === route)
       .map((b) => ({ at: ms(b.at), dose: b.dose, unit: prettyUnit(b.unit) }))
       .sort((a, b) => a.at - b.at);
-    const infs = drugInfusions.filter((i) => i.drug === name);
+    const infs = drugInfusions.filter((i) => i.drug === drug && normRoute(i.route) === route);
 
     const infusions: DrugInfusionSegment[] = [];
     let rowUnit = boluses[0]?.unit ?? "";
@@ -188,14 +207,14 @@ export function buildChartModel(cs: CaseState, opts: BuildOptions = {}): ChartMo
 
     for (const inf of infs) {
       rowUnit = infusionRowUnit(inf) || rowUnit;
-      for (const s of buildSegments(inf, endAt)) infusions.push(s);
+      for (const s of buildSegments(inf, anesthesiaEndAt)) infusions.push(s);
       if (!inf.tci && !inf.gas) {
         // unidad de masa a partir de la concentración de la jeringa (p. ej. "mcg/ml" -> µg).
         const massUnit = inf.concentration > 0 && inf.concentrationUnit ? prettyUnit(inf.concentrationUnit.replace(/\s*\/\s*ml$/i, "")) : null;
         const chs = (inf.changes ?? []).slice().sort((a, b) => a.at.localeCompare(b.at));
         for (let i = 0; i < chs.length; i++) {
           if (chs[i].stop) continue;
-          const to = chs[i + 1] ? ms(chs[i + 1].at) : inf.stoppedAt ? ms(inf.stoppedAt) : endAt;
+          const to = chs[i + 1] ? ms(chs[i + 1].at) : inf.stoppedAt ? ms(inf.stoppedAt) : anesthesiaEndAt;
           const ml = (chs[i].rateMlH * (to - ms(chs[i].at))) / 3_600_000;
           if (massUnit) massByUnit.set(massUnit, (massByUnit.get(massUnit) ?? 0) + ml * inf.concentration);
           else infVolNoConcMl += ml;
@@ -212,6 +231,8 @@ export function buildChartModel(cs: CaseState, opts: BuildOptions = {}): ChartMo
     parts.push(...extraTotals);
     const total = parts.length ? { text: parts.join(" · ") } : null;
 
+    // La etiqueta de la fila incluye la vía (p. ej. "Fentanilo intradural (µg)").
+    const name = route ? `${drug} ${route}` : drug;
     return { name, unit: rowUnit, boluses, infusions, total };
   });
 
