@@ -82,6 +82,9 @@ interface PageSpec {
 const PHOTO_GAP = 4; // mm entre fotos
 const PHOTO_CAPTION_H = 5; // mm para la hora bajo cada foto
 const PHOTO_MIN_W = 60; // ancho mínimo legible impreso (mm)
+const PHOTO_SECTION_GAP = 3; // mm entre la cuadrícula y la sección de fotos
+const PHOTO_SECTION_TITLE_H = 6; // mm del título "Registro del monitor"
+const VIA1_ROW_H = Math.min(MAX_ROW_MM, MIN_ROW_MM + 1.5); // filas compactas en Vía 1
 
 function photoCapacity(areaH: number, areaW: number): number {
   const cols = Math.max(1, Math.floor((areaW + PHOTO_GAP) / (PHOTO_MIN_W + PHOTO_GAP)));
@@ -152,31 +155,27 @@ export function renderChart(doc: jsPDF, model: ChartModel, reuseFirstPage = true
   const photoAreaW = pageW - 2 * MARGIN;
   for (const w of windows) {
     if (model.via1) {
-      // Vía 1: sin banda hemodinámica. Las fotos de la franja ocupan la parte superior;
-      // debajo, las bandas (respirador/fármacos/líquidos). Las fotos sobrantes pasan a
-      // hojas de continuación de la misma franja.
+      // Vía 1: la cuadrícula (eje + respirador/fármacos/líquidos + hitos) NO se interrumpe;
+      // se dibuja compacta y, DEBAJO, va la sección "Registro del monitor" con las fotos.
+      // Si no caben a tamaño legible, pasan a una hoja de continuación de la misma franja.
       const bandsBlocks: Block[] = bands.map((band) => ({ t: "band", band }) as Block);
-      const bandsH = bandsBlocks.reduce((s, b) => s + blockMinH(b), 0);
+      const bandsH = bands.reduce((s, band) => s + BAND_TITLE_H + band.rows.length * VIA1_ROW_H, 0);
+      const bandsEndY = Math.min(bottomY, bandsTop + bandsH);
+      const firstSecH = bottomY - (bandsEndY + PHOTO_SECTION_GAP + PHOTO_SECTION_TITLE_H);
+      const contSecH = bottomY - (bandsTop + PHOTO_SECTION_TITLE_H);
       const wphotos = model.photos.filter((p) => p.at >= w.start && p.at < w.end);
       let contIndex = 0;
-      if (wphotos.length === 0) {
-        pages.push({ window: w, contIndex: contIndex++, blocks: bandsBlocks, photos: [], photoAreaH: 0 });
-        continue;
-      }
-      const firstArea = availH - bandsH;
       let idx = 0;
-      if (firstArea >= PHOTO_MIN_W * 0.68 + PHOTO_CAPTION_H) {
-        const slice = wphotos.slice(0, photoCapacity(firstArea, photoAreaW));
-        idx = slice.length;
-        pages.push({ window: w, contIndex: contIndex++, blocks: bandsBlocks, photos: slice, photoAreaH: firstArea });
-      } else {
-        // Las bandas no dejan sitio legible: primera página solo bandas; fotos aparte.
-        pages.push({ window: w, contIndex: contIndex++, blocks: bandsBlocks, photos: [], photoAreaH: 0 });
+      let firstSlice: ChartPhoto[] = [];
+      if (wphotos.length && firstSecH >= PHOTO_MIN_W * 0.68) {
+        firstSlice = wphotos.slice(0, photoCapacity(firstSecH, photoAreaW));
+        idx = firstSlice.length;
       }
+      pages.push({ window: w, contIndex: contIndex++, blocks: bandsBlocks, photos: firstSlice, photoAreaH: firstSecH });
       while (idx < wphotos.length) {
-        const slice = wphotos.slice(idx, idx + photoCapacity(availH, photoAreaW));
+        const slice = wphotos.slice(idx, idx + photoCapacity(contSecH, photoAreaW));
         idx += slice.length;
-        pages.push({ window: w, contIndex: contIndex++, blocks: [], photos: slice, photoAreaH: availH });
+        pages.push({ window: w, contIndex: contIndex++, blocks: [], photos: slice, photoAreaH: contSecH });
       }
       continue;
     }
@@ -233,35 +232,52 @@ export function renderChart(doc: jsPDF, model: ChartModel, reuseFirstPage = true
 
     drawHeader(doc, model, page);
     drawFooter(doc, model);
-    drawGridAndAxis(doc, page.window, plotLeft, colWidth, gridTop, bottomY);
-    drawMilestones(doc, model, page.window, plotLeft, colWidth, gridTop, bandsTop, bottomY);
-
-    if (hasTotals && isLast) {
-      doc.setFontSize(FONT_LABEL_PT);
-      doc.setTextColor(60, 60, 60);
-      doc.text("Total", plotRight + totalColW / 2, gridTop + 2.6, { align: "center" });
-    }
-
     // layout vertical de los bloques de esta página
     const bandBlocks = page.blocks.filter((b): b is { t: "band"; band: Band } => b.t === "band");
     let y = bandsTop;
 
     if (model.via1) {
-      // Vía 1: fotos de la franja arriba; bandas (respirador/fármacos/líquidos) debajo.
-      const photoH = page.photoAreaH ?? 0;
-      if (photoH > 0 && page.photos && page.photos.length) {
-        drawPhotoArea(doc, page.photos, MARGIN, pageW - MARGIN, bandsTop, photoH);
-        y = bandsTop + photoH;
-      }
-      const bandsMinH = bandBlocks.reduce((s, b) => s + blockMinH(b), 0);
-      const totalRows = bandBlocks.reduce((s, b) => s + b.band.rows.length, 0);
-      const remain = Math.max(0, bottomY - y - bandsMinH);
-      const growPerRow = totalRows > 0 ? Math.min(MAX_ROW_MM - MIN_ROW_MM, remain / totalRows) : 0;
-      const rowH = MIN_ROW_MM + growPerRow;
-      for (const b of bandBlocks) {
-        y = drawBand(doc, b.band, page.window, { plotLeft, plotRight, colWidth, totalColW, labelColW, y, rowH, isLast, placer });
+      if (bandBlocks.length > 0) {
+        // Página principal de la franja: la cuadrícula NO se interrumpe (eje + bandas +
+        // hitos), compacta; debajo, la sección "Registro del monitor" con las fotos.
+        const bandsH = bandBlocks.reduce((s, b) => s + BAND_TITLE_H + b.band.rows.length * VIA1_ROW_H, 0);
+        const bandsEndY = Math.min(bottomY, bandsTop + bandsH);
+        drawGridAndAxis(doc, page.window, plotLeft, colWidth, gridTop, bandsEndY);
+        drawMilestones(doc, model, page.window, plotLeft, colWidth, gridTop, bandsTop, bandsEndY);
+        if (hasTotals && isLast) {
+          doc.setFontSize(FONT_LABEL_PT);
+          doc.setTextColor(60, 60, 60);
+          doc.text("Total", plotRight + totalColW / 2, gridTop + 2.6, { align: "center" });
+        }
+        for (const b of bandBlocks) {
+          y = drawBand(doc, b.band, page.window, { plotLeft, plotRight, colWidth, totalColW, labelColW, y, rowH: VIA1_ROW_H, isLast, placer });
+        }
+        if (page.photos && page.photos.length) {
+          const secTop = bandsEndY + PHOTO_SECTION_GAP;
+          doc.setFont(FONT, "normal");
+          doc.setFontSize(FONT_LABEL_PT);
+          doc.setTextColor(50);
+          doc.text("Registro del monitor", MARGIN, secTop + PHOTO_SECTION_TITLE_H - 1.5);
+          const areaTop = secTop + PHOTO_SECTION_TITLE_H;
+          drawPhotoArea(doc, page.photos, MARGIN, pageW - MARGIN, areaTop, bottomY - areaTop);
+        }
+      } else {
+        // Hoja de continuación de la franja: solo fotos.
+        doc.setFont(FONT, "normal");
+        doc.setFontSize(FONT_LABEL_PT);
+        doc.setTextColor(50);
+        doc.text("Registro del monitor (continuación)", MARGIN, bandsTop + PHOTO_SECTION_TITLE_H - 1.5);
+        const areaTop = bandsTop + PHOTO_SECTION_TITLE_H;
+        drawPhotoArea(doc, page.photos ?? [], MARGIN, pageW - MARGIN, areaTop, bottomY - areaTop);
       }
     } else {
+      drawGridAndAxis(doc, page.window, plotLeft, colWidth, gridTop, bottomY);
+      drawMilestones(doc, model, page.window, plotLeft, colWidth, gridTop, bandsTop, bottomY);
+      if (hasTotals && isLast) {
+        doc.setFontSize(FONT_LABEL_PT);
+        doc.setTextColor(60, 60, 60);
+        doc.text("Total", plotRight + totalColW / 2, gridTop + 2.6, { align: "center" });
+      }
       const totalRows = bandBlocks.reduce((s, b) => s + b.band.rows.length, 0);
       const fixedH = page.blocks.reduce((s, b) => s + blockMinH(b), 0);
       const leftover = Math.max(0, availH - fixedH);
@@ -374,18 +390,36 @@ class Placer {
         return text;
       }
     }
-    // Llamada al pie
+    // Llamada al pie: coloca el marcador [n] en un hueco LIBRE (evita que se monte sobre
+    // una etiqueta larga vecina, p.ej. "Ce 4 µg/ml (Schnider)").
     const n = this.footnotes.length + 1;
     this.footnotes.push(`[${n}] ${text}`);
     this.diag.footnotes++;
     const marker = `[${n}]`;
     this.doc.setFontSize(FONT_MIN_PT);
     const mw = this.doc.getTextWidth(marker);
-    const bx = align === "center" ? x - mw / 2 : x;
-    const box = { x0: bx, y0: yMid - h / 2, x1: bx + mw, y1: yMid + h / 2, group };
-    this.boxes.push(box);
+    const mh = ptToMm(FONT_MIN_PT);
+    const mkMarkerBox = (cy: number) => {
+      const bx = align === "center" ? x - mw / 2 : x;
+      return { x0: bx, y0: cy - mh / 2, x1: bx + mw, y1: cy + mh / 2, group };
+    };
+    const mLo = rowTop + mh / 2;
+    const mHi = Math.max(mLo, rowBottom - mh / 2);
+    const mClamp = (v: number) => Math.min(mHi, Math.max(mLo, v));
+    const mCandidates = [yMid, yMid - h * 0.95, yMid + h * 0.95, yMid - 1.9 * h, yMid + 1.9 * h, yMid - 2.8 * h, yMid + 2.8 * h].map(mClamp);
+    let mbox = mkMarkerBox(mClamp(yMid));
+    let placedCy = mClamp(yMid);
+    for (const cy of mCandidates) {
+      const b = mkMarkerBox(cy);
+      if (!this.collides(b)) {
+        mbox = b;
+        placedCy = cy;
+        break;
+      }
+    }
+    this.boxes.push(mbox);
     this.doc.setTextColor(120);
-    this.doc.text(marker, bx, yMid + h * 0.32, { align: "left" });
+    this.doc.text(marker, mbox.x0, placedCy + mh * 0.32, { align: "left" });
     return marker;
   }
 
@@ -646,7 +680,7 @@ function drawPhotoArea(doc: jsPDF, photos: ChartPhoto[], x0: number, x1: number,
     doc.rect(px, py, dw, dh, "S"); // marco fino
     doc.setFontSize(FONT_AXIS_PT);
     doc.setTextColor(60, 60, 60);
-    doc.text(TIME(p.at), cx + cellW / 2, cy + cellH - 1, { align: "center" }); // hora debajo
+    doc.text(`Foto tomada a las ${TIME(p.at)}`, cx + cellW / 2, cy + cellH - 1, { align: "center" }); // pie
   });
 }
 

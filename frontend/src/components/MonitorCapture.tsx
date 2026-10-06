@@ -6,6 +6,7 @@ import { hhmm } from "../utils/time";
 import { compressMonitorPhoto, formatBytes, VIA1_PHOTO_MODE } from "../vision/compress";
 import { VitalsModal } from "./VitalsModal";
 import { VisionImportModal } from "./VisionImportModal";
+import { PhotoCropModal } from "./PhotoCropModal";
 
 interface Props {
   cs: CaseState;
@@ -28,6 +29,8 @@ export function MonitorCapture({ cs, onToast }: Props) {
   const [busy, setBusy] = useState(false);
   const [manual, setManual] = useState(false);
   const [vision, setVision] = useState<{ initial?: { dataUrl: string; mime: string }[] } | null>(null);
+  const [cropFile, setCropFile] = useState<File | null>(null);
+  const [pickErr, setPickErr] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const via = cs.monitorVia;
@@ -64,18 +67,43 @@ export function MonitorCapture({ cs, onToast }: Props) {
     }
   }
 
-  async function onPickPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+  // Abre la cámara/galería. CLAVE en iOS/iPadOS Safari: el .click() del input debe ser
+  // SÍNCRONO dentro del toque, sin operaciones asíncronas ni cambios de estado antes.
+  function openPicker() {
+    setPickErr(null);
+    const el = fileRef.current;
+    if (!el) {
+      setPickErr("No se pudo abrir la cámara: el campo de archivo no está disponible. Recarga la página e inténtalo de nuevo.");
+      return;
+    }
+    try {
+      el.click();
+    } catch (err) {
+      setPickErr(`No se pudo abrir la cámara: ${err instanceof Error ? err.message : String(err)}`);
+      onToast?.("No se pudo abrir la cámara");
+    }
+  }
+
+  function onPickPhoto(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (fileRef.current) fileRef.current.value = "";
-    if (!file) return;
+    if (fileRef.current) fileRef.current.value = ""; // permite volver a elegir la misma foto
+    if (!file) return; // el usuario canceló
+    setPickErr(null);
+    setCropFile(file); // recorte manual (o "usar foto entera")
+  }
+
+  async function onCropped(blob: Blob) {
+    setCropFile(null);
     setBusy(true);
     try {
-      const c = await compressMonitorPhoto(file, { mode: VIA1_PHOTO_MODE });
+      const c = await compressMonitorPhoto(blob, { mode: VIA1_PHOTO_MODE });
       const r = await api.addPhoto(cs.caseId, { imageBase64: c.dataUrl, mimeType: "image/jpeg", takenAt: new Date().toISOString() });
       await refreshPhotos();
       onToast?.(`Foto guardada · ${formatBytes(r.photo.byte_size)}`);
     } catch (err) {
-      onToast?.(`No se pudo guardar la foto: ${err instanceof Error ? err.message : "error"}`);
+      const detail = err instanceof Error ? err.message : String(err);
+      setPickErr(`No se pudo guardar la foto: ${detail}`);
+      onToast?.("No se pudo guardar la foto");
     } finally {
       setBusy(false);
     }
@@ -154,11 +182,11 @@ export function MonitorCapture({ cs, onToast }: Props) {
             <>
               {photosEnabled ? (
                 <>
-                  <label className="btn primary block lg" style={{ textAlign: "center", cursor: canWrite ? "pointer" : "not-allowed", opacity: canWrite ? 1 : 0.6 }}>
-                    {busy ? "Procesando…" : "📷 Añadir foto del monitor"}
-                    <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={onPickPhoto} disabled={!canWrite || busy} style={{ display: "none" }} />
-                  </label>
-                  <p className="sub" style={{ marginTop: 6 }}>La foto se comprime en el móvil (≈1600 px) y se guarda con su hora. No se analiza; irá al PDF.</p>
+                  <button type="button" className="btn primary block lg" disabled={!canWrite || busy} onClick={openPicker}>
+                    {busy ? "Procesando…" : "📷 Hacer foto o elegir de la galería"}
+                  </button>
+                  {pickErr && <div className="alert danger" style={{ marginTop: 6 }}>{pickErr}</div>}
+                  <p className="sub" style={{ marginTop: 6 }}>Puedes sacar la foto en el momento o elegir una ya hecha. Se comprime en el móvil (≈1600 px) y se guarda con su hora; no se analiza, irá al PDF.</p>
                 </>
               ) : (
                 <div className="alert danger">La Vía 1 (fotos) no está disponible ahora mismo en el servidor. Usa el registro manual del monitor.</div>
@@ -200,6 +228,18 @@ export function MonitorCapture({ cs, onToast }: Props) {
         </>
       )}
 
+      {/* Input de archivo persistente (siempre en el DOM, oculto SIN display:none para que
+          iOS/iPadOS lo dispare de forma fiable). Sin "capture": ofrece cámara Y galería. */}
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        onChange={onPickPhoto}
+        aria-hidden="true"
+        tabIndex={-1}
+        style={{ position: "absolute", width: 1, height: 1, opacity: 0, overflow: "hidden", pointerEvents: "none" }}
+      />
+      {cropFile && <PhotoCropModal file={cropFile} onCancel={() => setCropFile(null)} onConfirm={onCropped} />}
       {manual && <VitalsModal cs={cs} group="monitor" onClose={() => setManual(false)} onDone={(m) => onToast?.(m)} />}
       {vision && (
         <VisionImportModal
