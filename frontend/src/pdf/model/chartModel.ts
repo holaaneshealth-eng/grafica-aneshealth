@@ -86,6 +86,14 @@ export interface FluidOutputRow {
   total: { text: string } | null;
 }
 
+// Foto del monitor (Vía 1) ya comprimida, para incrustarla en las páginas de gráfica.
+export interface ChartPhoto {
+  at: number; // hora de la foto (epoch ms)
+  dataUrl: string; // data:image/jpeg;base64,...
+  w: number; // dimensiones en px (para mantener la proporción)
+  h: number;
+}
+
 export interface ChartModel {
   sheetNo: string; // nº de hoja anestésica (IA)
   date: string;
@@ -98,4 +106,9 @@ export interface ChartModel {
   fluidInputs: FluidInputRow[];
   fluidOutputs: FluidOutputRow[];
   milestones: ChartMilestone[];
+  // Vía 1: en las páginas de gráfica, la banda hemodinámica y las filas del monitor se
+  // sustituyen por las fotos de cada franja. Las filas del respirador/fármacos/líquidos
+  // y las líneas de hitos se mantienen.
+  via1: boolean;
+  photos: ChartPhoto[];
 }

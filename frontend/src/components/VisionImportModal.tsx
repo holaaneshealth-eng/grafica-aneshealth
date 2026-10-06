@@ -96,7 +96,7 @@ export function VisionImportModal({ cs, onClose, onDone, initialImages }: Props)
       let dataUrl: string;
       let mime = file.type || "image/jpeg";
       try {
-        const c = await compressMonitorPhoto(file, { grayscaleInvert: false, quality: 0.7 });
+        const c = await compressMonitorPhoto(file, { mode: "color", softenMoire: false, quality: 0.7 });
         dataUrl = c.dataUrl;
         mime = "image/jpeg";
       } catch {

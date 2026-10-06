@@ -15,6 +15,7 @@ import type { VitalsRecord } from "../domain/events";
 import { hhmm, nowLocalInput, isoFromLocalInput, isoToLocalInput } from "../utils/time";
 import { formatNum } from "../domain/calculations";
 import { EXPOSURE_OPTIONS, insensibleLoss, WHO_PHASES } from "../domain/clinical";
+import { techniqueDetailLines } from "../domain/techniqueRender";
 import { MILESTONE_QUICK } from "../pdf/config/milestones";
 import { VENT_MODES } from "../pdf/config/chartParams";
 
@@ -293,12 +294,7 @@ function TechniqueSection({ cs }: { cs: CaseState }) {
               <span className="t">{hhmm(t.at)}</span>
               <span className="m">
                 <strong>{t.label}</strong>
-                <div className="sm">
-                  {Object.entries(t.details)
-                    .filter(([, v]) => v !== "" && v != null)
-                    .map(([k, v]) => `${k}: ${String(v)}`)
-                    .join("  |  ")}
-                </div>
+                <div className="sm">{techniqueDetailLines(t).join("  |  ")}</div>
               </span>
             </div>
           ))}

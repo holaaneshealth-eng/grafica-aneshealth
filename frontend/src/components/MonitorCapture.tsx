@@ -3,7 +3,7 @@ import { useStore } from "../store/store";
 import { api } from "../api";
 import type { CaseState } from "../domain/events";
 import { hhmm } from "../utils/time";
-import { compressMonitorPhoto, formatBytes } from "../vision/compress";
+import { compressMonitorPhoto, formatBytes, VIA1_PHOTO_MODE } from "../vision/compress";
 import { VitalsModal } from "./VitalsModal";
 import { VisionImportModal } from "./VisionImportModal";
 
@@ -70,7 +70,7 @@ export function MonitorCapture({ cs, onToast }: Props) {
     if (!file) return;
     setBusy(true);
     try {
-      const c = await compressMonitorPhoto(file, { grayscaleInvert: true });
+      const c = await compressMonitorPhoto(file, { mode: VIA1_PHOTO_MODE });
       const r = await api.addPhoto(cs.caseId, { imageBase64: c.dataUrl, mimeType: "image/jpeg", takenAt: new Date().toISOString() });
       await refreshPhotos();
       onToast?.(`Foto guardada · ${formatBytes(r.photo.byte_size)}`);
