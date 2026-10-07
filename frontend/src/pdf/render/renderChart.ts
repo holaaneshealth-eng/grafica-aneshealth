@@ -31,7 +31,7 @@ import {
   FONT_VALUE_PT,
   ptToMm,
 } from "../units";
-import { buildWindows, xOf, isQuarterColumn, type TimeWindow } from "../layout/timeScale";
+import { buildWindows, xOf, type TimeWindow } from "../layout/timeScale";
 import { COLS_PER_PAGE, COL_MINUTES } from "../units";
 
 /** Nº de columnas (5 min) realmente usadas por una ventana (la última puede ir recortada). */
@@ -90,6 +90,17 @@ const PHOTO_MIN_W = 60; // ancho mínimo legible impreso (mm)
 const PHOTO_SECTION_GAP = 3; // mm entre la cuadrícula y la sección de fotos
 const PHOTO_SECTION_TITLE_H = 6; // mm del título "Registro del monitor"
 const VIA1_ROW_H = Math.min(MAX_ROW_MM, MIN_ROW_MM + 1.5); // filas compactas en Vía 1
+
+// Altura mínima de una fila de PERFUSIÓN: debe caber la barra abajo y las etiquetas
+// (hasta en dos alturas) por encima, sin que la barra las tape nunca.
+const DRUG_ROW_MM = 11;
+
+function rowRenderH(r: Row, base: number): number {
+  return r.t === "drug" && r.row.infusions.length > 0 ? Math.max(base, DRUG_ROW_MM) : base;
+}
+function bandBlockH(band: Band, base: number): number {
+  return BAND_TITLE_H + band.rows.reduce((s, r) => s + rowRenderH(r, base), 0);
+}
 
 function photoCapacity(areaH: number, areaW: number): number {
   const cols = Math.max(1, Math.floor((areaW + PHOTO_GAP) / (PHOTO_MIN_W + PHOTO_GAP)));
@@ -164,7 +175,7 @@ export function renderChart(doc: jsPDF, model: ChartModel, reuseFirstPage = true
       // se dibuja compacta y, DEBAJO, va la sección "Registro del monitor" con las fotos.
       // Si no caben a tamaño legible, pasan a una hoja de continuación de la misma franja.
       const bandsBlocks: Block[] = bands.map((band) => ({ t: "band", band }) as Block);
-      const bandsH = bands.reduce((s, band) => s + BAND_TITLE_H + band.rows.length * VIA1_ROW_H, 0);
+      const bandsH = bands.reduce((s, band) => s + bandBlockH(band, VIA1_ROW_H), 0);
       const bandsEndY = Math.min(bottomY, bandsTop + bandsH);
       const firstSecH = bottomY - (bandsEndY + PHOTO_SECTION_GAP + PHOTO_SECTION_TITLE_H);
       const contSecH = bottomY - (bandsTop + PHOTO_SECTION_TITLE_H);
@@ -201,7 +212,8 @@ export function renderChart(doc: jsPDF, model: ChartModel, reuseFirstPage = true
       if (bh > availH && block.t === "band") {
         // Banda sola más alta que la página: dividir por filas (último recurso).
         flush();
-        const perPage = Math.max(1, Math.floor((availH - BAND_TITLE_H) / MIN_ROW_MM));
+        const perRow = block.band.key === "drugs" ? DRUG_ROW_MM : MIN_ROW_MM;
+        const perPage = Math.max(1, Math.floor((availH - BAND_TITLE_H) / perRow));
         for (let i = 0; i < block.band.rows.length; i += perPage) {
           const chunk = block.band.rows.slice(i, i + perPage);
           const title = i === 0 ? block.band.title : `${block.band.title} (cont.)`;
@@ -246,7 +258,7 @@ export function renderChart(doc: jsPDF, model: ChartModel, reuseFirstPage = true
       if (bandBlocks.length > 0) {
         // Página principal de la franja: la cuadrícula NO se interrumpe (eje + bandas +
         // hitos), compacta; debajo, la sección "Registro del monitor" con las fotos.
-        const bandsH = bandBlocks.reduce((s, b) => s + BAND_TITLE_H + b.band.rows.length * VIA1_ROW_H, 0);
+        const bandsH = bandBlocks.reduce((s, b) => s + bandBlockH(b.band, VIA1_ROW_H), 0);
         const bandsEndY = Math.min(bottomY, bandsTop + bandsH);
         drawGridAndAxis(doc, page.window, plotLeft, colWidth, gridTop, bandsEndY);
         drawMilestones(doc, model, page.window, plotLeft, colWidth, gridTop, bandsTop, bandsEndY);
@@ -343,7 +355,7 @@ function computeLabelColWidth(doc: jsPDF, rows: Row[]): number {
 
 function blockMinH(b: Block): number {
   if (b.t === "hemo") return HEMO_BAND_H;
-  return BAND_TITLE_H + b.band.rows.length * MIN_ROW_MM;
+  return BAND_TITLE_H + b.band.rows.reduce((s, r) => s + rowRenderH(r, MIN_ROW_MM), 0);
 }
 
 // ---------- colocación de etiquetas con detección de colisiones ----------
@@ -494,7 +506,11 @@ function drawGridAndAxis(doc: jsPDF, w: TimeWindow, plotLeft: number, colWidth: 
   const cols = windowCols(w); // la última ventana dibuja solo hasta endAt (sin columnas vacías)
   for (let c = 0; c <= cols; c++) {
     const x = plotLeft + c * colWidth;
-    if (c % 3 === 0) {
+    const t = w.start + c * COL_MINUTES * 60 * 1000;
+    // Las etiquetas horarias caen SIEMPRE en los cuartos de hora en punto (:00/:15/:30/:45),
+    // aunque la gráfica empiece en otro minuto. Las demás columnas son marcas de 5 min.
+    const isQuarter = new Date(t).getMinutes() % 15 === 0;
+    if (isQuarter) {
       doc.setDrawColor(150);
       doc.setLineWidth(0.2);
     } else {
@@ -503,15 +519,14 @@ function drawGridAndAxis(doc: jsPDF, w: TimeWindow, plotLeft: number, colWidth: 
     }
     doc.line(x, gridTop, x, bottomY);
     if (c < cols) {
-      if (isQuarterColumn(c)) {
-        const t = w.start + c * COL_MINUTES * 60 * 1000;
+      if (isQuarter) {
         doc.setFontSize(FONT_AXIS_PT);
         doc.setTextColor(70, 70, 70);
         doc.text(TIME(t), x + 1, gridTop + 2.6);
       } else {
         doc.setDrawColor(150);
         doc.setLineWidth(0.3);
-        doc.line(x, gridTop, x, gridTop + 1.4);
+        doc.line(x, gridTop, x, gridTop + 1.4); // marca intermedia (cada 5 min)
       }
     }
   }
@@ -716,12 +731,13 @@ function drawBand(doc: jsPDF, band: Band, w: TimeWindow, ctx: BandCtx): number {
 
   const sepRight = ctx.rightEdge + (ctx.isLast ? ctx.totalColW : 0);
   for (const r of band.rows) {
-    drawRow(doc, r, w, { ...ctx, y });
+    const rh = rowRenderH(r, ctx.rowH); // las filas de perfusión son más altas
+    drawRow(doc, r, w, { ...ctx, y, rowH: rh });
     // separador de fila
     doc.setDrawColor(238);
     doc.setLineWidth(0.1);
-    doc.line(MARGIN, y + ctx.rowH, sepRight, y + ctx.rowH);
-    y += ctx.rowH;
+    doc.line(MARGIN, y + rh, sepRight, y + rh);
+    y += rh;
   }
   // separador de banda
   doc.setDrawColor(170);
@@ -740,7 +756,7 @@ function drawRowLabel(doc: jsPDF, label: string, y: number, h: number, labelColW
 }
 
 function drawRow(doc: jsPDF, r: Row, w: TimeWindow, ctx: BandCtx) {
-  const { y, rowH, plotLeft, plotRight, colWidth, totalColW, labelColW, isLast, placer, rightEdge } = ctx;
+  const { y, rowH, plotLeft, colWidth, totalColW, labelColW, isLast, placer, rightEdge } = ctx;
   drawRowLabel(doc, rowLabel(r), y, rowH, labelColW);
   const mid = y + rowH / 2;
   const group = `${r.t}:${rowLabel(r)}:${w.index}`;
@@ -776,29 +792,78 @@ function drawRow(doc: jsPDF, r: Row, w: TimeWindow, ctx: BandCtx) {
       placer.place(String(p.value), x + 0.5, mid - rowH * 0.18, y, y + rowH, group, "left");
     }
   } else if (r.t === "drug") {
-    // perfusiones
-    for (const seg of r.row.infusions) {
-      const to = seg.to ?? w.end;
-      if (to <= w.start || seg.from >= w.end) continue;
-      const x1 = Math.max(xOf(seg.from, w, plotLeft, colWidth), plotLeft);
-      const x2 = Math.min(xOf(to, w, plotLeft, colWidth), plotRight);
-      doc.setDrawColor(80, 120, 200);
-      doc.setFillColor(210, 224, 250);
-      doc.setLineWidth(0.2);
-      doc.rect(x1, mid - 0.9, Math.max(0.6, x2 - x1), 1.8, "FD");
-      // etiqueta: en el cambio si cae en la ventana; si viene de antes, al borde izquierdo
-      const labelX = seg.from >= w.start && seg.from < w.end ? xOf(seg.from, w, plotLeft, colWidth) : plotLeft;
-      placer.place(seg.label, labelX + 0.6, mid - rowH * 0.22, y, y + rowH, group, "left");
-    }
-    // bolos: triángulo pequeño en el MINUTO EXACTO + dosis con unidad (p. ej. "8 mg")
-    for (const b of r.row.boluses) {
-      if (b.at < w.start || b.at >= w.end) continue;
-      const x = xOf(b.at, w, plotLeft, colWidth);
-      const by = mid + rowH * 0.26;
-      const s = 0.9;
-      doc.setFillColor(40, 40, 40);
-      doc.triangle(x - s, by + s, x + s, by + s, x, by - s, "F");
-      placer.place(`${formatNum(b.dose)} ${b.unit}`, x + s + 0.6, by, y, y + rowH, group, "left");
+    if (r.row.infusions.length > 0) {
+      // ----- fila de PERFUSIÓN -----
+      // La barra va en la franja BAJA de la fila; las etiquetas van SIEMPRE por encima de
+      // la barra (nunca tapadas). Cada cambio de diana/ritmo marca una pequeña línea
+      // vertical en el minuto exacto y su valor se escribe justo a la derecha. Si dos
+      // etiquetas no caben en una línea, se apilan en varias alturas. Nunca hay notas al pie.
+      const barH = 1.8;
+      const barY = y + rowH - 2.2;
+      const barTop = barY - barH / 2;
+      // 1) barras de perfusión
+      for (const seg of r.row.infusions) {
+        const to = seg.to ?? w.end;
+        if (to <= w.start || seg.from >= w.end) continue;
+        const x1 = Math.max(xOf(seg.from, w, plotLeft, colWidth), plotLeft);
+        const x2 = Math.min(xOf(to, w, plotLeft, colWidth), rightEdge);
+        doc.setDrawColor(80, 120, 200);
+        doc.setFillColor(210, 224, 250);
+        doc.setLineWidth(0.2);
+        doc.rect(x1, barTop, Math.max(0.6, x2 - x1), barH, "FD");
+      }
+      // 2) marcas (cambios de perfusión + bolos de esta vía) con su valor, apiladas encima
+      type Mark = { x: number; text: string; kind: "inf" | "bolus"; connect: boolean };
+      const marks: Mark[] = [];
+      for (const seg of r.row.infusions) {
+        const to = seg.to ?? w.end;
+        if (to <= w.start || seg.from >= w.end) continue;
+        const inWin = seg.from >= w.start && seg.from < w.end;
+        marks.push({ x: inWin ? xOf(seg.from, w, plotLeft, colWidth) : plotLeft, text: seg.label, kind: "inf", connect: inWin });
+      }
+      for (const b of r.row.boluses) {
+        if (b.at < w.start || b.at >= w.end) continue;
+        marks.push({ x: xOf(b.at, w, plotLeft, colWidth), text: `${formatNum(b.dose)} ${b.unit}`, kind: "bolus", connect: true });
+      }
+      marks.sort((a, b) => a.x - b.x);
+      doc.setFontSize(FONT_VALUE_PT);
+      const lineH = ptToMm(FONT_VALUE_PT) + 0.6;
+      const gap = 1.2;
+      const levelRight: number[] = []; // borde derecho ya ocupado en cada altura
+      for (const m of marks) {
+        const tw = doc.getTextWidth(m.text);
+        let startX = m.x + (m.kind === "bolus" ? 1.6 : 0.8);
+        if (startX + tw > rightEdge) startX = Math.max(plotLeft, rightEdge - tw); // no invadir "Total"
+        let level = 0;
+        while (level < levelRight.length && levelRight[level] > startX - gap) level++;
+        levelRight[level] = startX + tw;
+        const baseY = barTop - 0.8 - level * lineH; // línea base del texto, por encima de la barra
+        if (m.kind === "bolus") {
+          const s = 0.9;
+          doc.setFillColor(40, 40, 40);
+          doc.triangle(m.x - s, barY + s, m.x + s, barY + s, m.x, barY - s, "F");
+          doc.setDrawColor(120);
+          doc.setLineWidth(0.2);
+          doc.line(m.x, barY - s, m.x, baseY + 0.3);
+        } else if (m.connect) {
+          doc.setDrawColor(80, 120, 200);
+          doc.setLineWidth(0.3);
+          doc.line(m.x, barTop, m.x, baseY + 0.3);
+        }
+        doc.setTextColor(20, 20, 20);
+        doc.text(m.text, startX, baseY);
+      }
+    } else {
+      // ----- fila SOLO de bolos: triángulo en el minuto exacto + dosis con unidad -----
+      for (const b of r.row.boluses) {
+        if (b.at < w.start || b.at >= w.end) continue;
+        const x = xOf(b.at, w, plotLeft, colWidth);
+        const by = mid + rowH * 0.26;
+        const s = 0.9;
+        doc.setFillColor(40, 40, 40);
+        doc.triangle(x - s, by + s, x + s, by + s, x, by - s, "F");
+        placer.place(`${formatNum(b.dose)} ${b.unit}`, x + s + 0.6, by, y, y + rowH, group, "left");
+      }
     }
   } else if (r.t === "fluidIn") {
     for (const e of r.row.entries) {
