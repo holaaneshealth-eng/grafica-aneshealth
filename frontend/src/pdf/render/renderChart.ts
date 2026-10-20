@@ -196,7 +196,9 @@ export function renderChart(doc: jsPDF, model: ChartModel, reuseFirstPage = true
       continue;
     }
 
-    const blocks: Block[] = [{ t: "hemo" }, ...bands.map((band) => ({ t: "band", band }) as Block)];
+    // La banda hemodinámica solo se dibuja si hay alguna TA (no invasiva o invasiva) o FC.
+    const hasHemo = model.hemo.ta.length > 0 || model.hemo.ibp.length > 0 || model.hemo.fc.length > 0;
+    const blocks: Block[] = [...(hasHemo ? [{ t: "hemo" } as Block] : []), ...bands.map((band) => ({ t: "band", band }) as Block)];
     let contIndex = 0;
     let cur: Block[] = [];
     let curH = 0;

@@ -40,6 +40,7 @@ export function laborTotals(cs: CaseState): { alMg: number; opioidUg: number } {
       opioidUg += v * (progs[i].opioidUgMl ?? 0);
     }
   }
-  const r1 = (n: number) => Math.round(n * 10) / 10;
-  return { alMg: r1(alMg), opioidUg: r1(opioidUg) };
+  // Redondeo "con sentido": sin decimales a partir de 10, un decimal por debajo.
+  const sensible = (n: number) => (Math.abs(n) >= 10 ? Math.round(n) : Math.round(n * 10) / 10);
+  return { alMg: sensible(alMg), opioidUg: sensible(opioidUg) };
 }

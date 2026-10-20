@@ -4,7 +4,7 @@ import html2canvas from "html2canvas";
 import type { CaseState, ProtectionInfo } from "../domain/events";
 import { useStore } from "../store/store";
 import { AnesthesiaChart, CHARTED } from "../components/AnesthesiaChart";
-import { generateGraphicPages, type ChartPhoto } from "../pdf";
+import { generateGraphicPages, renderDataPage, type ChartPhoto } from "../pdf";
 import { api, ApiError } from "../api";
 import { dmy, hhmm } from "../utils/time";
 import { milestoneCode } from "../pdf/config/milestones";
@@ -41,7 +41,8 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
   const emailPending = !!cs.signedAt && !sentOkForCurrent;
   const [busy, setBusy] = useState(false);
   const [mailMsg, setMailMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [showEndPrompt, setShowEndPrompt] = useState(false); // aviso al firmar sin estado al finalizar
+  const [showSignWarn, setShowSignWarn] = useState(false); // aviso al firmar con datos esenciales incompletos
+  const [missingEssential, setMissingEssential] = useState<string[]>([]);
   const [showEndModal, setShowEndModal] = useState(false);
 
   // La tabla seriada excluye las constantes que ya se representan en la gráfica.
@@ -69,52 +70,17 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
     return html2canvas(el, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
   }
 
-  // Construye el PDF completo (gráfica vectorial + fotos del monitor + resto de la hoja).
+  // Construye el PDF completo: gráfica vectorial (+ fotos del monitor en Vía 1) y la página
+  // de datos, ambas dibujadas directamente con jsPDF (idénticas en móvil, tableta y PC).
   async function buildPdfDoc(): Promise<jsPDF> {
-    const chartBlock = chartBlockRef.current;
-    try {
-      const pdf = new jsPDF("l", "mm", "a4");
-      // Vía 1: las fotos se incrustan DENTRO de las páginas de gráfica (sustituyen a la
-      // banda hemodinámica y a las filas del monitor). Ya no hay página aparte.
-      const via1 = cs.monitorVia === 1;
-      const photos = via1 ? await loadVia1Photos(cs.caseId) : [];
-      generateGraphicPages(pdf, cs, { reuseFirstPage: true, via1, photos });
-
-      if (chartBlock) chartBlock.style.display = "none";
-      const canvas = await renderCanvas(sheetRef.current!);
-      if (chartBlock) chartBlock.style.display = "";
-
-      const pw = pdf.internal.pageSize.getWidth();
-      const ph = pdf.internal.pageSize.getHeight();
-      const headerH = 9;
-      const footerH = 7;
-      const contentH = ph - headerH - footerH;
-      const pxPerMm = canvas.width / pw;
-      const pageContentPx = contentH * pxPerMm;
-      const pages = Math.max(1, Math.ceil(canvas.height / pageContentPx));
-      for (let p = 0; p < pages; p++) {
-        pdf.addPage("a4", "landscape");
-        const slicePx = Math.min(pageContentPx, canvas.height - p * pageContentPx);
-        const tmp = document.createElement("canvas");
-        tmp.width = canvas.width;
-        tmp.height = slicePx;
-        const ctx = tmp.getContext("2d")!;
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, tmp.width, tmp.height);
-        ctx.drawImage(canvas, 0, p * pageContentPx, canvas.width, slicePx, 0, 0, canvas.width, slicePx);
-        pdf.addImage(tmp.toDataURL("image/png"), "PNG", 0, headerH, pw, slicePx / pxPerMm);
-        pdf.setFontSize(8);
-        pdf.setTextColor(90);
-        pdf.text(`Hoja Anestésica · ${cs.ia}`, 6, 6);
-        pdf.text(dmy(cs.createdAt), pw - 6, 6, { align: "right" });
-        pdf.text(cs.signedAt ? `Firmado: ${cs.signedBy}` : "Documento pseudonimizado (RGPD)", 6, ph - 2.5);
-      }
-      // Numeración ÚNICA y consecutiva de TODO el documento (gráfica + datos).
-      stampPageNumbers(pdf);
-      return pdf;
-    } finally {
-      if (chartBlock) chartBlock.style.display = "";
-    }
+    const pdf = new jsPDF("l", "mm", "a4");
+    const via1 = cs.monitorVia === 1;
+    const photos = via1 ? await loadVia1Photos(cs.caseId) : [];
+    generateGraphicPages(pdf, cs, { reuseFirstPage: true, via1, photos });
+    renderDataPage(pdf, cs);
+    // Numeración ÚNICA y consecutiva de TODO el documento (gráfica + datos).
+    stampPageNumbers(pdf);
+    return pdf;
   }
 
   async function exportPDF() {
@@ -211,9 +177,11 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
 
   // Firma la hoja y, acto seguido, envía el PDF por correo (sustituye al envío de imagen).
   function signAndSend() {
-    // Si no se ha registrado el estado al finalizar, se avisa y se ofrece rellenarlo.
-    if (!cs.endState) {
-      setShowEndPrompt(true);
+    // Aviso si faltan datos esenciales. Botones: "Completar ahora" / "Firmar igualmente".
+    const missing = missingEssentials(cs);
+    if (missing.length > 0) {
+      setMissingEssential(missing);
+      setShowSignWarn(true);
       return;
     }
     doSign();
@@ -583,8 +551,9 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
           </div>
         )}
 
-        {/* Cronología de constantes: fuente pequeña y dos columnas para aprovechar el A4 horizontal */}
-        {cs.vitals.length > 0 &&
+        {/* La "Cronología de constantes" se ha eliminado: esos datos ya están en las celdas de la gráfica. */}
+        {false &&
+          cs.vitals.length > 0 &&
           paramsForTable.length > 0 &&
           (() => {
             const rows = cs.vitals.slice().sort((a, b) => a.at.localeCompare(b.at));
@@ -692,20 +661,25 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
       </div>
 
       {showEndModal && <AnesthesiaEndModal cs={cs} onClose={() => setShowEndModal(false)} onDone={onToast} />}
-      {showEndPrompt && (
-        <div className="modal-backdrop" onClick={() => setShowEndPrompt(false)}>
+      {showSignWarn && (
+        <div className="modal-backdrop" onClick={() => setShowSignWarn(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-grip" />
             <div className="modal-head">
-              <h3>Estado al finalizar la anestesia</h3>
+              <h3>Faltan datos esenciales</h3>
             </div>
-            <p className="sub">Todavía no has registrado el estado al finalizar la anestesia.</p>
+            <p className="sub">Antes de firmar conviene registrar:</p>
+            <ul style={{ margin: "0 0 8px 18px" }}>
+              {missingEssential.map((m) => (
+                <li key={m}>{m}</li>
+              ))}
+            </ul>
             <div className="grid2" style={{ marginTop: 8 }}>
-              <button className="btn primary lg" onClick={() => { setShowEndPrompt(false); setShowEndModal(true); }}>
-                Rellenar ahora
+              <button className="btn primary lg" onClick={() => setShowSignWarn(false)}>
+                Completar ahora
               </button>
-              <button className="btn lg" onClick={() => { setShowEndPrompt(false); doSign(); }}>
-                Firmar sin rellenar
+              <button className="btn lg" onClick={() => { setShowSignWarn(false); doSign(); }}>
+                Firmar igualmente
               </button>
             </div>
           </div>
@@ -774,6 +748,36 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
       </div>
     </div>
   );
+}
+
+// Datos esenciales que conviene registrar antes de firmar (aviso con "Completar ahora" /
+// "Firmar igualmente"). En casos de parto se exige además la lectura final de la bomba y el cierre.
+function missingEssentials(cs: CaseState): string[] {
+  const m: string[] = [];
+  const hasV = (code: string) => cs.vitals.some((v) => v.values[code] != null);
+  const vTA = hasV("TAS") || hasV("TAD") || hasV("TAM") || hasV("PAIS") || hasV("PAIM") || hasV("PAID");
+  const vFC = hasV("FC");
+  const vSpo2 = hasV("SPO2");
+  const aTA = cs.labor.assessments.some((a) => a.tas != null || a.tad != null);
+  const aFC = cs.labor.assessments.some((a) => a.fc != null);
+  const isLabor = cs.caseType === "analgesia_parto";
+  if (!(vTA || aTA)) m.push("Tensión arterial (TA)");
+  if (!(vFC || aFC)) m.push("Frecuencia cardíaca (FC)");
+  if (isLabor) {
+    if (cs.labor.readings.length === 0) m.push("Lectura final de la bomba");
+    if (!cs.labor.delivery && !cs.convertedAt) m.push("Cierre (tipo de parto)");
+    if (cs.convertedAt) {
+      // La cesárea es un caso de quirófano: añade sus esenciales.
+      if (!vSpo2) m.push("SpO₂");
+      if (!cs.endState) m.push("Estado al finalizar la anestesia");
+      if (cs.positions.length === 0) m.push("Posición del paciente");
+    }
+  } else {
+    if (!vSpo2) m.push("SpO₂");
+    if (!cs.endState) m.push("Estado al finalizar la anestesia");
+    if (cs.positions.length === 0) m.push("Posición del paciente");
+  }
+  return m;
 }
 
 // ---- Fotos del monitor en el PDF (Vía 1) ----

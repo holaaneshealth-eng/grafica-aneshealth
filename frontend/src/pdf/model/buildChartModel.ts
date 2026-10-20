@@ -41,6 +41,19 @@ function simpleRateBaseUnit(doseUnit?: string): string | null {
   return m ? prettyUnit(m[1]) : null;
 }
 
+/** Redondea a 2 cifras significativas (para los ritmos ponderados: 0,1 µg/kg/min, no 0,0972). */
+function sig2(n: number): number {
+  if (!isFinite(n) || n === 0) return 0;
+  const power = 2 - Math.ceil(Math.log10(Math.abs(n)));
+  const f = Math.pow(10, power);
+  return Math.round(n * f) / f;
+}
+
+/** Redondeo "con sentido" para totales calculados de perfusión: sin decimales a partir de 10, uno por debajo. */
+function sensibleRound(v: number): number {
+  return Math.abs(v) >= 10 ? Math.round(v) : Math.round(v * 10) / 10;
+}
+
 function infusionRowUnit(inf: InfusionRecord): string {
   if (inf.tci) return prettyUnit(inf.tciUnit ?? "µg/ml");
   if (inf.gas) return "%";
@@ -73,7 +86,8 @@ function buildSegments(inf: InfusionRecord, endAt: number): Seg[] {
     } else if (inf.gas) {
       label = first ? `${formatNum(ch.gasPercent ?? 0)} %` : `${formatNum(ch.gasPercent ?? 0)}`;
     } else if (ch.doseUnit && !/ml\/h/i.test(ch.doseUnit) && ch.weightBasedDose) {
-      label = first ? `${formatNum(ch.weightBasedDose)} ${prettyUnit(ch.doseUnit)}` : `${formatNum(ch.weightBasedDose)}`;
+      // Ritmo ponderado: como mucho dos cifras significativas.
+      label = first ? `${formatNum(sig2(ch.weightBasedDose))} ${prettyUnit(ch.doseUnit)}` : `${formatNum(sig2(ch.weightBasedDose))}`;
     } else {
       label = first ? `${formatNum(ch.rateMlH)} ml/h` : `${formatNum(ch.rateMlH)}`;
     }
@@ -215,9 +229,11 @@ export function buildChartModel(cs: CaseState, opts: BuildOptions = {}): ChartMo
     const infusions: DrugInfusionSegment[] = [];
     let rowUnit = boluses[0]?.unit ?? "";
 
-    // Total en MASA de fármaco (combina bolos y perfusión cuando comparten unidad de masa).
-    const massByUnit = new Map<string, number>();
-    boluses.forEach((b) => massByUnit.set(b.unit, (massByUnit.get(b.unit) ?? 0) + b.dose));
+    // Total en MASA de fármaco. Los bolos (tecleados a mano) se conservan tal cual; la
+    // masa calculada de la perfusión se redondea "con sentido" antes de sumar.
+    const bolusMassByUnit = new Map<string, number>();
+    boluses.forEach((b) => bolusMassByUnit.set(b.unit, (bolusMassByUnit.get(b.unit) ?? 0) + b.dose));
+    const infMassByUnit = new Map<string, number>();
     let infVolNoConcMl = 0; // perfusión sin concentración conocida -> se muestra en ml de solución
     const extraTotals: string[] = [];
 
@@ -234,8 +250,8 @@ export function buildChartModel(cs: CaseState, opts: BuildOptions = {}): ChartMo
           if (chs[i].stop) continue;
           const to = chs[i + 1] ? ms(chs[i + 1].at) : inf.stoppedAt ? ms(inf.stoppedAt) : anesthesiaEndAt;
           const amt = (chs[i].rateMlH * (to - ms(chs[i].at))) / 3_600_000; // ritmo × horas
-          if (simpleUnit) massByUnit.set(simpleUnit, (massByUnit.get(simpleUnit) ?? 0) + amt);
-          else if (massUnit) massByUnit.set(massUnit, (massByUnit.get(massUnit) ?? 0) + amt * inf.concentration);
+          if (simpleUnit) infMassByUnit.set(simpleUnit, (infMassByUnit.get(simpleUnit) ?? 0) + amt);
+          else if (massUnit) infMassByUnit.set(massUnit, (infMassByUnit.get(massUnit) ?? 0) + amt * inf.concentration);
           else infVolNoConcMl += amt;
         }
       }
@@ -243,12 +259,16 @@ export function buildChartModel(cs: CaseState, opts: BuildOptions = {}): ChartMo
       if (inf.totalInfused != null) extraTotals.push(`${formatNum(inf.totalInfused)} ${prettyUnit(inf.totalInfusedUnit ?? "ml")} (bomba)`);
     }
 
-    // El total conserva la MISMA precisión decimal que las dosis registradas (no se
-    // redondea: 1,25 mg se muestra como 1,25 mg). Solo se limpia el ruido de coma flotante.
-    const tidy = (v: number) => Math.round(v * 1_000_000) / 1_000_000;
+    // Bolos a mano tal cual (1,25 mg sigue siendo 1,25 mg) + perfusión redondeada con sentido.
     const parts: string[] = [];
-    massByUnit.forEach((v, u) => parts.push(`${formatNum(tidy(v))} ${u}`));
-    if (infVolNoConcMl > 0.05) parts.push(`${formatNum(Math.round(infVolNoConcMl))} ml de solución`);
+    const units = new Set<string>([...bolusMassByUnit.keys(), ...infMassByUnit.keys()]);
+    units.forEach((u) => {
+      const b = bolusMassByUnit.get(u) ?? 0;
+      const i = sensibleRound(infMassByUnit.get(u) ?? 0);
+      const total = Math.round((b + i) * 1000) / 1000;
+      parts.push(`${formatNum(total)} ${u}`);
+    });
+    if (infVolNoConcMl > 0.05) parts.push(`${formatNum(sensibleRound(infVolNoConcMl))} ml de solución`);
     parts.push(...extraTotals);
     const total = parts.length ? { text: parts.join(" · ") } : null;
 

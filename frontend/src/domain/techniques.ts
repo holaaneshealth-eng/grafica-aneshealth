@@ -41,8 +41,8 @@ export const TECHNIQUES: TechniqueDef[] = [
     label: "General con mascarilla",
     fields: [
       HAN,
-      { key: "maskType", label: "Tipo de mascarilla", type: "text" },
-      { key: "maskSize", label: "Número de mascarilla", type: "number" },
+      { key: "maskType", label: "Tipo de mascarilla", type: "select", options: ["Facial", "Laríngea"] },
+      { key: "maskSize", label: "Tamaño / número", type: "number" },
     ],
   },
   {
