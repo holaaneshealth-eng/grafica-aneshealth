@@ -20,6 +20,17 @@ export function techniqueDetailLines(t: TechniqueRecord): string[] {
   const lines: string[] = [];
   const seen = new Set<string>();
 
+  // "General con mascarilla": distinguir mascarilla facial de laríngea.
+  if (t.type === "gen_mascarilla") {
+    const d = t.details as Record<string, unknown>;
+    const mt = String(d.maskType ?? "").trim();
+    const sz = String(d.maskSize ?? "").trim();
+    if (/lar/i.test(mt)) lines.push(`Mascarilla laríngea${sz ? `, tamaño ${sz}` : ""}`);
+    else if (mt) lines.push("Mascarilla facial");
+    seen.add("maskType");
+    seen.add("maskSize");
+  }
+
   const emit = (field: TechniqueField | undefined, value: unknown) => {
     const type = field?.type ?? "text";
     const label = field?.label ?? "";
@@ -38,6 +49,7 @@ export function techniqueDetailLines(t: TechniqueRecord): string[] {
   // Primero los campos definidos (orden estable y títulos en castellano).
   if (def) {
     for (const f of def.fields) {
+      if (seen.has(f.key)) continue;
       seen.add(f.key);
       if (f.key in t.details) emit(f, (t.details as Record<string, unknown>)[f.key]);
     }

@@ -7,6 +7,7 @@ import { renderLaborChart } from "./render/renderLaborChart";
 
 export { buildChartModel } from "./model/buildChartModel";
 export { renderChart } from "./render/renderChart";
+export { renderDataPage } from "./render/renderDataPage";
 export type { Diagnostics } from "./render/renderChart";
 export type { ChartModel, ChartPhoto } from "./model/chartModel";
 
