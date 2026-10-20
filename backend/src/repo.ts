@@ -199,3 +199,48 @@ export const auditRepo = {
     return (await query(`SELECT * FROM audit_log ORDER BY id DESC LIMIT $1`, [limit])).rows;
   },
 };
+
+export interface CustomDrugRow {
+  id: string;
+  name: string;
+  group_name: string;
+  default_unit: string;
+  common_bolus: string | null; // JSON array de números
+  infusion_dose_unit: string | null;
+  conc_vol: number;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface NewCustomDrug {
+  id: string;
+  name: string;
+  group: string;
+  defaultUnit: string;
+  commonBolus: number[] | null;
+  infusionDoseUnit: string | null;
+  concVol: boolean;
+  createdBy: string | null;
+  createdAt: string;
+}
+
+// Catálogo de fármacos "Otro fármaco" añadidos por los usuarios (compartido entre todos).
+export const customDrugs = {
+  async all(): Promise<CustomDrugRow[]> {
+    return (await query<CustomDrugRow>(`SELECT * FROM custom_drugs ORDER BY name`)).rows;
+  },
+  async byNameCI(name: string): Promise<CustomDrugRow | undefined> {
+    return (await query<CustomDrugRow>(`SELECT * FROM custom_drugs WHERE LOWER(name)=LOWER($1)`, [name])).rows[0];
+  },
+  async insert(d: NewCustomDrug): Promise<void> {
+    await query(
+      `INSERT INTO custom_drugs (id, name, group_name, default_unit, common_bolus, infusion_dose_unit, conc_vol, created_by, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (LOWER(name)) DO NOTHING`,
+      [d.id, d.name, d.group, d.defaultUnit, d.commonBolus ? JSON.stringify(d.commonBolus) : null, d.infusionDoseUnit, d.concVol ? 1 : 0, d.createdBy, d.createdAt],
+    );
+  },
+  async remove(id: string): Promise<void> {
+    await query(`DELETE FROM custom_drugs WHERE id=$1`, [id]);
+  },
+};

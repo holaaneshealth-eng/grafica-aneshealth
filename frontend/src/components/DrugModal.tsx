@@ -3,7 +3,6 @@ import { Modal } from "./Modal";
 import { TimeField } from "./TimeField";
 import { TemplatePanel } from "./TemplatePanel";
 import { DRUG_UNITS, drugByName, drugsForMode, dilutionsFor, tciInfo } from "../domain/drugs";
-import { addCustomDrug } from "../domain/customDrugs";
 import { computeInfusion, rateFromDose, formatNum, type DoseRateUnit, type MassUnit } from "../domain/calculations";
 import { useStore } from "../store/store";
 import type { CaseState, InfusionRecord } from "../domain/events";
@@ -27,6 +26,8 @@ const ROUTES = ["IV", "Intradural", "Epidural", "Perineural", "Interfascial", "I
 
 export function DrugModal({ cs, onClose, onDone }: Props) {
   const append = useStore((s) => s.append);
+  const addCustomDrug = useStore((s) => s.addCustomDrug);
+  const customDrugs = useStore((s) => s.customDrugs); // repinta los chips al añadir uno nuevo
   const [mode, setMode] = useState<Mode>("bolus");
   const [drug, setDrug] = useState("");
   const [time, setTime] = useState(nowLocalInput());
@@ -336,7 +337,10 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
   }
 
   const showChangeMode = mode === "infusion" && !!activeInf;
-  const chipDrugs = mode === "plantillas" || mode === "pediatrica" ? [] : drugsForMode(mode);
+  const chipDrugs = useMemo(
+    () => (mode === "plantillas" || mode === "pediatrica" ? [] : drugsForMode(mode)),
+    [mode, customDrugs],
+  );
 
   return (
     <Modal title="Administrar fármaco" onClose={onClose}>

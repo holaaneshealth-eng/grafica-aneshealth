@@ -10,7 +10,8 @@ import { Summary } from "./screens/Summary";
 import { DrugModal } from "./components/DrugModal";
 import { VitalsModal } from "./components/VitalsModal";
 import { IncidentModal } from "./components/IncidentModal";
-import { hhmmss } from "./utils/time";
+import { TimeField } from "./components/TimeField";
+import { hhmmss, nowLocalInput, isoFromLocalInput } from "./utils/time";
 import { matchAntibiotic } from "./domain/clinical";
 
 type Modal = null | "drug" | "vitals" | "incident";
@@ -43,6 +44,9 @@ export default function App() {
   const [clock, setClock] = useState(new Date().toISOString());
   const [showAdmin, setShowAdmin] = useState(false);
   const [vitalsTime, setVitalsTime] = useState<string | undefined>(undefined);
+  // Pregunta de entrada a quirófano al pasar de preoperatorio a quirófano.
+  const [entradaPrompt, setEntradaPrompt] = useState(false);
+  const [entradaTime, setEntradaTime] = useState<string>(nowLocalInput());
   const [reminderMin, setReminderMin] = useState<number>(() => {
     const v = typeof localStorage !== "undefined" ? localStorage.getItem("ah-reminder-min") : null;
     return v ? parseInt(v, 10) : 5;
@@ -154,9 +158,17 @@ export default function App() {
   function advanceFromPhase1() {
     if (cs && phase1Complete(cs)) {
       append(cs.caseId, "PHASE_COMPLETED", { from: "PREOP", next: "OR" });
-      // La "Entrada a quirófano" ya NO se crea automáticamente: se registra como hito
-      // manual (Registro › Hitos) con su hora real.
+      // Se pregunta si registrar la entrada a quirófano ahora, con la hora editable.
+      setEntradaTime(nowLocalInput());
+      setEntradaPrompt(true);
     }
+  }
+  function confirmEntrada() {
+    if (cs) {
+      append(cs.caseId, "MILESTONE", { id: "m-" + Date.now(), at: isoFromLocalInput(entradaTime), label: "Entrada a quirófano" });
+      showToast("Entrada a quirófano registrada");
+    }
+    setEntradaPrompt(false);
   }
   function endSurgery() {
     if (cs) append(cs.caseId, "SURGERY_ENDED", {});
@@ -303,6 +315,27 @@ export default function App() {
         />
       )}
       {cs && modal === "incident" && <IncidentModal cs={cs} onClose={() => setModal(null)} onDone={showToast} />}
+
+      {cs && entradaPrompt && (
+        <div className="modal-backdrop" onClick={() => setEntradaPrompt(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-grip" />
+            <div className="modal-head">
+              <h3>¿Registrar la entrada a quirófano ahora?</h3>
+            </div>
+            <p className="sub">Se guardará como hito con la hora indicada. Puedes ajustarla si no coincide con la entrada real.</p>
+            <TimeField value={entradaTime} onChange={setEntradaTime} label="Hora de entrada a quirófano" />
+            <div className="grid2" style={{ marginTop: 8 }}>
+              <button className="btn primary lg" onClick={confirmEntrada}>
+                Registrar
+              </button>
+              <button className="btn lg" onClick={() => setEntradaPrompt(false)}>
+                Más tarde
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {toast && <div className="toast">{toast}</div>}
     </div>
