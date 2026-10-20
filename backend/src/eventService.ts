@@ -1,5 +1,5 @@
 import type { PoolClient } from "pg";
-import { withTransaction } from "./db";
+import { withTransaction, dbFeatures } from "./db";
 import type { CaseFull, EventRow } from "./repo";
 import { formatIA, eventHash, newId } from "./domain";
 import type { AuthUser } from "./auth";
@@ -62,10 +62,11 @@ async function appendEventTx(client: PoolClient, caseId: string, input: AppendIn
     [eventId, caseId, input.type, occurredAt, now, actor.id, actor.displayName, JSON.stringify(input.payload ?? {}), null, prevHash, hash],
   );
 
-  if (input.type === "LABOR_LOADING_DOSE") {
+  // Columna labor_loading_at solo si la migración de parto está disponible.
+  if (dbFeatures.labor && input.type === "LABOR_LOADING_DOSE") {
     // Ancla de los recordatorios de parto (primer test / reevaluación).
     await client.query(`UPDATE cases SET labor_loading_at=$1, last_activity=$2 WHERE case_id=$3`, [occurredAt, now, caseId]);
-  } else if (input.type === "CONVERT_TO_CESAREAN" || input.type === "LABOR_DELIVERY") {
+  } else if (dbFeatures.labor && (input.type === "CONVERT_TO_CESAREAN" || input.type === "LABOR_DELIVERY")) {
     // Fin de la fase de parto: dejan de aplicar los recordatorios.
     await client.query(`UPDATE cases SET labor_loading_at=NULL, last_activity=$1 WHERE case_id=$2`, [now, caseId]);
   }
@@ -130,11 +131,21 @@ export function createCase(actor: AuthUser, caseType: "quirofano" | "analgesia_p
     const iso = now.toISOString();
     const { ia, year, ordinal } = await reserveIA(client, now);
     const caseId = newId();
-    await client.query(
-      `INSERT INTO cases (case_id, ia, year, ordinal, owner_user_id, owner_location, status, case_type, created_at, last_activity)
-       VALUES ($1,$2,$3,$4,$5,$6,'active',$7,$8,$8)`,
-      [caseId, ia, year, ordinal, actor.id, actor.location, caseType, iso],
-    );
+    // Si la columna case_type aún no existe (migración de parto no aplicada), se inserta
+    // sin ella: el caso queda como 'quirofano'. El tipo viaja igualmente en CASE_CREATED.
+    if (dbFeatures.labor) {
+      await client.query(
+        `INSERT INTO cases (case_id, ia, year, ordinal, owner_user_id, owner_location, status, case_type, created_at, last_activity)
+         VALUES ($1,$2,$3,$4,$5,$6,'active',$7,$8,$8)`,
+        [caseId, ia, year, ordinal, actor.id, actor.location, caseType, iso],
+      );
+    } else {
+      await client.query(
+        `INSERT INTO cases (case_id, ia, year, ordinal, owner_user_id, owner_location, status, created_at, last_activity)
+         VALUES ($1,$2,$3,$4,$5,$6,'active',$7,$7)`,
+        [caseId, ia, year, ordinal, actor.id, actor.location, iso],
+      );
+    }
     await appendEventTx(client, caseId, { type: "CASE_CREATED", occurredAt: iso, payload: { ia, year, ordinal, ownerLocation: actor.location, caseType } }, actor);
     const res = await client.query<CaseFull>(`SELECT * FROM cases WHERE case_id=$1`, [caseId]);
     return res.rows[0];

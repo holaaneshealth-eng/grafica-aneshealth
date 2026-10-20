@@ -8,6 +8,7 @@ import { useStore } from "../store/store";
 import type { CaseState, InfusionRecord } from "../domain/events";
 import { nowLocalInput, isoFromLocalInput, durationBetween } from "../utils/time";
 import { lactationFor, localAnestheticMax, PED_DOSES, type PedDose } from "../domain/clinical";
+import { laborLaWarning, laborLaConfirmText } from "../domain/laborLaMax";
 
 // Perfusión de "ritmo simple" no ponderada (p. ej. oxitocina UI/h, amiodarona mg/h).
 const SIMPLE_RATE_RE = /^(UI|mg|mcg|µg)\s*\/\s*h$/i;
@@ -108,6 +109,12 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
   // puede guardar (no aplica, no supera, o el usuario lo confirma).
   function localMaxOk(triggerDrug: string, at: string, newBolusMg: number, adrenaline: boolean): boolean {
     if (!localAnestheticMax(triggerDrug)) return true; // solo al registrar un anestésico local
+    // En analgesia de parto: solo bolos (carga, rescates, extensión) de las 2 h previas,
+    // sin contar la perfusión de la bomba.
+    if (cs.caseType === "analgesia_parto") {
+      const txt = laborLaConfirmText(laborLaWarning(cs, triggerDrug, newBolusMg, at, adrenaline));
+      return txt ? window.confirm(txt) : true;
+    }
     const w = cs.preop.weightKg;
     if (!w || w <= 0) {
       return window.confirm("Sin peso registrado: no se puede comprobar la dosis máxima de anestésicos locales.\n\n¿Guardar de todas formas?");

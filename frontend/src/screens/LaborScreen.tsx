@@ -7,6 +7,7 @@ import {
   DELIVERY_TYPES, INSTRUMENTAL_TYPES, LABOR_COMPLICATIONS, deliveryLabel, instrumentalLabel,
 } from "../domain/labor";
 import { laborTotals } from "../domain/laborTotals";
+import { laborLaWarning, laborLaConfirmText } from "../domain/laborLaMax";
 import { hhmm, nowLocalInput, isoFromLocalInput } from "../utils/time";
 import { formatNum } from "../domain/calculations";
 
@@ -123,6 +124,8 @@ function DoseForm({ cs, label, eventType, onToast }: { cs: CaseState; label: str
   function save() {
     if (!drug || mg == null) return;
     const at = isoFromLocalInput(time);
+    const txt = laborLaConfirmText(laborLaWarning(cs, drug, mg, at));
+    if (txt && !window.confirm(txt)) return;
     append(cs.caseId, eventType, { at, drug, concentration: c, volumeMl: v, doseMg: mg }, at);
     onToast(`${label} registrada`);
   }
@@ -253,6 +256,8 @@ function DuringCard({ cs, onToast }: { cs: CaseState; onToast: (m: string) => vo
   function saveRescue() {
     if (!rsDrug || rsMg == null) return;
     const at = isoFromLocalInput(rsTime);
+    const txt = laborLaConfirmText(laborLaWarning(cs, rsDrug, rsMg, at));
+    if (txt && !window.confirm(txt)) return;
     append(cs.caseId, "LABOR_RESCUE_BOLUS", { id: rid("rs"), at, drug: rsDrug, concentration: num(rsConc), volumeMl: num(rsVol), doseMg: rsMg }, at);
     setRsConc(""); setRsVol(""); setRsTime(nowLocalInput());
     onToast("Rescate registrado");

@@ -141,15 +141,6 @@ const SCHEMA = `
     success INTEGER NOT NULL DEFAULT 1
   );
   CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at);
-
-  ALTER TABLE cases ADD COLUMN IF NOT EXISTS case_type TEXT NOT NULL DEFAULT 'quirofano';
-  ALTER TABLE cases ADD COLUMN IF NOT EXISTS labor_loading_at TEXT;
-
-  CREATE TABLE IF NOT EXISTS app_settings (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
 `;
 
 export async function migrate(): Promise<void> {
@@ -159,7 +150,7 @@ export async function migrate(): Promise<void> {
 // Estado de funciones opcionales que dependen de una migración que puede fallar sin
 // tumbar el servidor. `photos` controla la Vía 1 (fotos del monitor); `customDrugs`,
 // el catálogo compartido de fármacos añadidos a mano.
-export const dbFeatures = { photos: false, customDrugs: false };
+export const dbFeatures = { photos: false, customDrugs: false, labor: false };
 
 // Esquema de la tabla de fotos del monitor (Vía 1). Idempotente (IF NOT EXISTS).
 // Se migra APARTE y de forma NO fatal: si falla, el servidor arranca igualmente y la
@@ -218,6 +209,33 @@ export async function migrateCustomDrugs(): Promise<void> {
     dbFeatures.customDrugs = false;
     // eslint-disable-next-line no-console
     console.error("[db] no se pudo crear custom_drugs; el catálogo de fármacos a mano queda DESACTIVADO:", (err as Error).message);
+  }
+}
+
+// Esquema de la analgesia de parto: columnas nuevas en `cases` (los casos existentes
+// quedan como 'quirofano') y la tabla de ajustes. Idempotente y NO fatal (como case_photos):
+// si falla, el servidor arranca igualmente y el tipo de caso "Analgesia de parto" y los
+// ajustes configurables quedan desactivados (dbFeatures.labor = false).
+const LABOR_SCHEMA = `
+  ALTER TABLE cases ADD COLUMN IF NOT EXISTS case_type TEXT NOT NULL DEFAULT 'quirofano';
+  ALTER TABLE cases ADD COLUMN IF NOT EXISTS labor_loading_at TEXT;
+  CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+`;
+
+export async function migrateLabor(): Promise<void> {
+  try {
+    await pool.query(LABOR_SCHEMA);
+    dbFeatures.labor = true;
+    // eslint-disable-next-line no-console
+    console.log("[db] columnas de parto y app_settings listas (Analgesia de parto activada).");
+  } catch (err) {
+    dbFeatures.labor = false;
+    // eslint-disable-next-line no-console
+    console.error("[db] no se pudieron crear las columnas de parto/app_settings; la Analgesia de parto queda DESACTIVADA:", (err as Error).message);
   }
 }
 
