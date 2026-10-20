@@ -105,6 +105,26 @@ export const LACTATION: Record<string, { level: LactationLevel; note?: string }>
   Ciprofloxacino: { level: "compatible", note: "preferibles alternativas si uso prolongado" },
 };
 
+// ---- Dosis máxima habitual de anestésicos locales (ORIENTATIVA, mg/kg, SIN adrenalina) ----
+// Se usa para avisar si la dosis total supera la máxima para el peso del paciente.
+// El orden importa: "levobupivac" antes que "bupivac" (una contiene a la otra).
+export const LOCAL_ANESTHETIC_MAX: { key: string; label: string; mgPerKg: number }[] = [
+  { key: "levobupivac", label: "Levobupivacaína", mgPerKg: 2 },
+  { key: "bupivac", label: "Bupivacaína", mgPerKg: 2 },
+  { key: "ropivac", label: "Ropivacaína", mgPerKg: 3 },
+  { key: "mepivac", label: "Mepivacaína", mgPerKg: 5 },
+  { key: "prilocain", label: "Prilocaína", mgPerKg: 6 },
+  { key: "cloroprocain", label: "Cloroprocaína", mgPerKg: 11 },
+  { key: "lidocain", label: "Lidocaína", mgPerKg: 4.5 },
+];
+
+export function localAnestheticMax(name: string): { label: string; mgPerKg: number } | undefined {
+  const n = name.trim().toLowerCase();
+  if (!n) return undefined;
+  const hit = LOCAL_ANESTHETIC_MAX.find((l) => n.includes(l.key));
+  return hit ? { label: hit.label, mgPerKg: hit.mgPerKg } : undefined;
+}
+
 export function lactationFor(name: string): { level: LactationLevel; note?: string } | undefined {
   const n = name.trim().toLowerCase();
   const key = Object.keys(LACTATION).find((k) => k.toLowerCase() === n || n.includes(k.toLowerCase()));

@@ -9,7 +9,9 @@ export interface DrugDef {
   infusionDoseUnit?: string; // unidad típica en perfusión (dosis ponderada)
   gas?: boolean; // gas anestésico: solo % en aire espirado (sevoflurano)
   fluid?: boolean; // suero IV: 500 ml; al finalizar calcula el ritmo medio
-  concVol?: boolean; // bolo neuroaxial: pide concentración (%) y volumen (ml)
+  concVol?: boolean; // anestésico local: pide concentración (%) y volumen (ml) y calcula mg
+  infusionRateUnit?: string; // perfusión de ritmo simple no ponderado (p. ej. "UI/h", "mg/h")
+  defaultRoute?: string; // vía de administración por defecto (si difiere de IV/intradural)
 }
 
 export const DRUGS: DrugDef[] = [
@@ -80,24 +82,24 @@ export const DRUGS: DrugDef[] = [
   { name: "Flumazenilo", group: "Antagonista", defaultUnit: "mg", commonBolus: [0.2, 0.3, 0.5] },
 
   // Uterotónicos / obstetricia
-  { name: "Oxitocina", group: "Uterotónico", defaultUnit: "UI", commonBolus: [5, 10] },
+  { name: "Oxitocina", group: "Uterotónico", defaultUnit: "UI", commonBolus: [1, 3, 5], infusionRateUnit: "UI/h" },
   { name: "Carbetocina", group: "Uterotónico", defaultUnit: "mcg", commonBolus: [100] },
-  { name: "Metilergometrina", group: "Uterotónico", defaultUnit: "mg", commonBolus: [0.2] },
+  { name: "Metilergometrina", group: "Uterotónico", defaultUnit: "mg", commonBolus: [0.2], defaultRoute: "IM" },
 
   // Diurético
   { name: "Furosemida", group: "Diurético", defaultUnit: "mg", commonBolus: [10, 20, 40] },
 
   // Antiarrítmico
-  { name: "Amiodarona", group: "Antiarrítmico", defaultUnit: "mg", commonBolus: [150, 300] },
+  { name: "Amiodarona", group: "Antiarrítmico", defaultUnit: "mg", commonBolus: [150, 300], infusionRateUnit: "mg/h" },
 
   // Alcalinizante
   { name: "Bicarbonato sódico", group: "Alcalinizante", defaultUnit: "mEq", commonBolus: [50, 100] },
 
-  // Anestésicos locales (IV / infiltración)
-  { name: "Ropivacaína", group: "Anestésico local", defaultUnit: "mg" },
-  { name: "Bupivacaína", group: "Anestésico local", defaultUnit: "mg" },
-  { name: "Levobupivacaína", group: "Anestésico local", defaultUnit: "mg" },
-  { name: "Mepivacaína", group: "Anestésico local", defaultUnit: "mg", commonBolus: [200, 400] },
+  // Anestésicos locales para bloqueos periféricos / infiltración (concentración % + volumen ml → mg)
+  { name: "Ropivacaína bloqueo", group: "Bloqueo/infiltración", defaultUnit: "mg", concVol: true, defaultRoute: "Perineural" },
+  { name: "Bupivacaína bloqueo", group: "Bloqueo/infiltración", defaultUnit: "mg", concVol: true, defaultRoute: "Perineural" },
+  { name: "Levobupivacaína bloqueo", group: "Bloqueo/infiltración", defaultUnit: "mg", concVol: true, defaultRoute: "Perineural" },
+  { name: "Mepivacaína bloqueo", group: "Bloqueo/infiltración", defaultUnit: "mg", concVol: true, defaultRoute: "Perineural" },
   { name: "Lidocaína subcutánea", group: "Anestésico local", defaultUnit: "mg", commonBolus: [20, 40, 100] },
 
   // Anestésicos locales neuroaxiales (piden concentración % y volumen ml)
@@ -108,6 +110,9 @@ export const DRUGS: DrugDef[] = [
   { name: "Lidocaína epidural", group: "Neuroaxial", defaultUnit: "mg", concVol: true },
   { name: "Ropivacaína epidural", group: "Neuroaxial", defaultUnit: "mg", concVol: true },
   { name: "Cloroprocaína intradural", group: "Neuroaxial", defaultUnit: "mg", concVol: true },
+  { name: "Levobupivacaína epidural", group: "Neuroaxial", defaultUnit: "mg", concVol: true },
+  { name: "Levobupivacaína intradural", group: "Neuroaxial", defaultUnit: "mg", concVol: true },
+  { name: "Mepivacaína intradural", group: "Neuroaxial", defaultUnit: "mg", concVol: true },
 
   // Opioides neuroaxiales (dosis simple, sin concentración/volumen)
   { name: "Fentanilo intradural", group: "Neuroaxial", defaultUnit: "mcg", commonBolus: [10, 15, 25] },
@@ -188,6 +193,8 @@ export function drugByName(name: string): DrugDef | undefined {
 
 /** Lista de fármacos para el modo indicado, ordenada alfabéticamente. */
 export function drugsForMode(mode: "bolus" | "infusion"): DrugDef[] {
-  const list = allDrugs().filter((d) => (mode === "bolus" ? !d.gas && !d.fluid : d.infusionDoseUnit || d.gas || d.fluid));
+  const list = allDrugs().filter((d) =>
+    mode === "bolus" ? !d.gas && !d.fluid : d.infusionDoseUnit || d.gas || d.fluid || d.infusionRateUnit,
+  );
   return list.slice().sort((a, b) => a.name.localeCompare(b.name, "es"));
 }
