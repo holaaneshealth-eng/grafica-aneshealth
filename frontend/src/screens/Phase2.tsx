@@ -265,6 +265,16 @@ function TechniqueSection({ cs }: { cs: CaseState }) {
   function saveTechnique(id: string) {
     const def = techniqueById(id);
     if (!def) return;
+    // Coherencia: la vía de intubación de la técnica (orotraqueal/nasotraqueal) debe
+    // coincidir con el tipo de tubo registrado. Si no, se avisa antes de guardar.
+    const expectedTube = id === "gen_iot" ? "Orotraqueal" : id === "gen_int_naso" ? "Nasotraqueal" : null;
+    const tube = typeof details.tubeType === "string" ? details.tubeType : "";
+    if (expectedTube && tube && tube !== expectedTube) {
+      const ok = window.confirm(
+        `La técnica es "${def.label}" pero el tubo registrado es "${tube}". ¿Guardar de todas formas?`,
+      );
+      if (!ok) return;
+    }
     const at = isoFromLocalInput(techTime);
     append(
       cs.caseId,

@@ -5,6 +5,8 @@ import { create } from "zustand";
 import type { BaseEvent, EventType, CaseState } from "../domain/events";
 import { projectCase, buildTimeline, type TimelineItem } from "./projection";
 import { api, setCsrfToken, type ApiCase, type ApiEvent, type ApiUser } from "../api";
+import type { DrugDef } from "../domain/drugs";
+import { setCustomDrugs, upsertCustomDrugLocal, getCustomDrugs, readLegacyCustomDrugs, clearLegacyCustomDrugs } from "../domain/customDrugs";
 
 // Retencion informativa (el backend aplica el autoborrado real de 15 dias).
 export const RETENTION_DAYS = 15;
@@ -90,6 +92,7 @@ interface AppState {
   activeCaseId: string | null;
   online: boolean;
   pending: PendingEvent[];
+  customDrugs: DrugDef[]; // catálogo "Otro fármaco" (servidor), reflejado para repintar la UI
 
   // sesion
   bootstrap: () => Promise<void>;
@@ -107,6 +110,8 @@ interface AppState {
   deleteCase: (id: string) => Promise<void>;
   flush: () => Promise<void>;
   setOnline: (v: boolean) => void;
+  loadCustomDrugs: () => Promise<void>;
+  addCustomDrug: (def: DrugDef) => void;
 
   // permisos / selectores
   canWrite: (caseId: string) => boolean;
@@ -124,6 +129,7 @@ export const useStore = create<AppState>((set, get) => ({
   activeCaseId: null,
   online: typeof navigator !== "undefined" ? navigator.onLine : true,
   pending: loadQueue(),
+  customDrugs: [],
 
   bootstrap: async () => {
     try {
@@ -131,10 +137,45 @@ export const useStore = create<AppState>((set, get) => ({
       setCsrfToken(csrfToken);
       set({ user, booting: false });
       await get().refreshCases();
+      await get().loadCustomDrugs();
       await get().flush();
     } catch {
       set({ user: null, booting: false });
     }
+  },
+
+  // Carga el catálogo "Otro fármaco" del servidor y migra los que quedaran guardados
+  // en el navegador por la versión anterior (una sola vez).
+  loadCustomDrugs: async () => {
+    try {
+      const { drugs } = await api.listCustomDrugs();
+      setCustomDrugs(drugs);
+      const legacy = readLegacyCustomDrugs();
+      if (legacy.length) {
+        const have = new Set(drugs.map((d) => d.name.toLowerCase()));
+        for (const d of legacy) {
+          if (have.has(d.name.toLowerCase())) continue;
+          try {
+            await api.addCustomDrug(d);
+            upsertCustomDrugLocal(d);
+          } catch {
+            /* se reintentará en el siguiente arranque */
+          }
+        }
+        clearLegacyCustomDrugs();
+      }
+      set({ customDrugs: getCustomDrugs() });
+    } catch {
+      /* el catálogo personalizado no está disponible; se usa solo el catálogo base */
+    }
+  },
+
+  addCustomDrug: (def) => {
+    upsertCustomDrugLocal(def); // disponible al instante en esta sesión
+    set({ customDrugs: getCustomDrugs() });
+    void api.addCustomDrug(def).catch(() => {
+      /* queda al menos en memoria durante la sesión */
+    });
   },
 
   setUser: (u) => set({ user: u }),

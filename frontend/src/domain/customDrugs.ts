@@ -1,47 +1,55 @@
-// Fármacos "Otro fármaco" añadidos por el usuario. Se guardan en el navegador
-// (localStorage) para quedar disponibles en los siguientes casos, igual que los del
-// catálogo. No contienen datos de paciente, solo la definición del fármaco.
+// Fármacos "Otro fármaco" añadidos a mano. La fuente de verdad es el SERVIDOR (tabla
+// custom_drugs, compartida por todos los usuarios y dispositivos). Aquí solo se mantiene
+// un registro EN MEMORIA que el store rellena al arrancar, para que las funciones
+// síncronas del catálogo (drugByName / drugsForMode) lo tengan disponible.
 import type { DrugDef } from "./drugs";
 
-const KEY = "aneshealth-custom-drugs-v1";
-let cache: DrugDef[] | null = null;
+let registry: DrugDef[] = [];
 
-function safeStorage(): Storage | null {
-  try {
-    return typeof localStorage !== "undefined" ? localStorage : null;
-  } catch {
-    return null; // entornos sin almacenamiento (p. ej. render en Node)
-  }
+const clean = (list: unknown): DrugDef[] =>
+  Array.isArray(list) ? (list as DrugDef[]).filter((d) => d && typeof d.name === "string" && d.name.trim()) : [];
+
+/** Catálogo personalizado actual (en memoria). */
+export function getCustomDrugs(): DrugDef[] {
+  return registry;
 }
 
+/** Compatibilidad con drugs.ts: devuelve el catálogo personalizado en memoria. */
 export function loadCustomDrugs(): DrugDef[] {
-  if (cache) return cache;
-  const s = safeStorage();
-  try {
-    const raw = s?.getItem(KEY);
-    const parsed = raw ? (JSON.parse(raw) as DrugDef[]) : [];
-    cache = Array.isArray(parsed) ? parsed.filter((d) => d && typeof d.name === "string" && d.name.trim()) : [];
-  } catch {
-    cache = [];
-  }
-  return cache;
+  return registry;
 }
 
-/** Añade (o actualiza) un fármaco personalizado. Devuelve true si quedó registrado. */
-export function addCustomDrug(def: DrugDef): boolean {
+/** Reemplaza el registro con la lista traída del servidor. */
+export function setCustomDrugs(list: DrugDef[]): void {
+  registry = clean(list);
+}
+
+/** Añade/actualiza un fármaco en memoria (actualización optimista; el store lo persiste). */
+export function upsertCustomDrugLocal(def: DrugDef): void {
   const name = def.name.trim();
-  if (!name) return false;
-  const list = loadCustomDrugs();
-  const idx = list.findIndex((d) => d.name.toLowerCase() === name.toLowerCase());
-  const entry: DrugDef = { ...def, name };
-  if (idx >= 0) list[idx] = { ...list[idx], ...entry };
-  else list.push(entry);
-  const s = safeStorage();
+  if (!name) return;
+  const i = registry.findIndex((d) => d.name.toLowerCase() === name.toLowerCase());
+  if (i >= 0) registry = registry.map((d, j) => (j === i ? { ...d, ...def, name } : d));
+  else registry = [...registry, { ...def, name }];
+}
+
+// --- Migración de los fármacos guardados en el navegador por la versión anterior ---
+const LEGACY_KEY = "aneshealth-custom-drugs-v1";
+
+export function readLegacyCustomDrugs(): DrugDef[] {
   try {
-    s?.setItem(KEY, JSON.stringify(list));
+    if (typeof localStorage === "undefined") return [];
+    const raw = localStorage.getItem(LEGACY_KEY);
+    return clean(raw ? JSON.parse(raw) : []);
   } catch {
-    /* almacenamiento no disponible: queda al menos en memoria durante la sesión */
+    return [];
   }
-  cache = list;
-  return true;
+}
+
+export function clearLegacyCustomDrugs(): void {
+  try {
+    if (typeof localStorage !== "undefined") localStorage.removeItem(LEGACY_KEY);
+  } catch {
+    /* almacenamiento no disponible */
+  }
 }

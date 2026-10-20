@@ -141,6 +141,19 @@ const SCHEMA = `
     success INTEGER NOT NULL DEFAULT 1
   );
   CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at);
+
+  CREATE TABLE IF NOT EXISTS custom_drugs (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    group_name TEXT NOT NULL DEFAULT 'Otro',
+    default_unit TEXT NOT NULL DEFAULT 'mg',
+    common_bolus TEXT,
+    infusion_dose_unit TEXT,
+    conc_vol INTEGER NOT NULL DEFAULT 0,
+    created_by TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_custom_drugs_name ON custom_drugs (LOWER(name));
 `;
 
 export async function migrate(): Promise<void> {

@@ -29,6 +29,7 @@ export const DRUGS: DrugDef[] = [
   { name: "Sufentanilo", group: "Opioide", defaultUnit: "mcg", commonBolus: [10, 20, 30], infusionDoseUnit: "mcg/kg/h" },
   { name: "Morfina", group: "Opioide", defaultUnit: "mg", commonBolus: [2, 3, 5, 10] },
   { name: "Tramadol", group: "Opioide", defaultUnit: "mg", commonBolus: [50, 100] },
+  { name: "Petidina", group: "Opioide", defaultUnit: "mg", commonBolus: [25, 50] },
 
   // Relajantes / reversores
   { name: "Rocuronio", group: "Relajante", defaultUnit: "mg", commonBolus: [30, 40, 50, 60], infusionDoseUnit: "mcg/kg/min" },
@@ -69,12 +70,34 @@ export const DRUGS: DrugDef[] = [
   { name: "Dexketoprofeno", group: "Analgésico", defaultUnit: "mg", commonBolus: [50] },
   { name: "Metamizol", group: "Analgésico", defaultUnit: "mg", commonBolus: [2000] },
   { name: "Dexametasona", group: "Corticoide", defaultUnit: "mg", commonBolus: [4, 8] },
+  { name: "Hidrocortisona", group: "Corticoide", defaultUnit: "mg", commonBolus: [100, 200] },
+  { name: "Metilprednisolona", group: "Corticoide", defaultUnit: "mg", commonBolus: [40, 125] },
   { name: "Ondansetrón", group: "Antiemético", defaultUnit: "mg", commonBolus: [4, 8] },
   { name: "Droperidol", group: "Antiemético", defaultUnit: "mg", commonBolus: [0.625, 1.25, 2.5] },
+
+  // Antagonistas / reversores específicos
+  { name: "Naloxona", group: "Antagonista", defaultUnit: "mg", commonBolus: [0.1, 0.2, 0.4] },
+  { name: "Flumazenilo", group: "Antagonista", defaultUnit: "mg", commonBolus: [0.2, 0.3, 0.5] },
+
+  // Uterotónicos / obstetricia
+  { name: "Oxitocina", group: "Uterotónico", defaultUnit: "UI", commonBolus: [5, 10] },
+  { name: "Carbetocina", group: "Uterotónico", defaultUnit: "mcg", commonBolus: [100] },
+  { name: "Metilergometrina", group: "Uterotónico", defaultUnit: "mg", commonBolus: [0.2] },
+
+  // Diurético
+  { name: "Furosemida", group: "Diurético", defaultUnit: "mg", commonBolus: [10, 20, 40] },
+
+  // Antiarrítmico
+  { name: "Amiodarona", group: "Antiarrítmico", defaultUnit: "mg", commonBolus: [150, 300] },
+
+  // Alcalinizante
+  { name: "Bicarbonato sódico", group: "Alcalinizante", defaultUnit: "mEq", commonBolus: [50, 100] },
 
   // Anestésicos locales (IV / infiltración)
   { name: "Ropivacaína", group: "Anestésico local", defaultUnit: "mg" },
   { name: "Bupivacaína", group: "Anestésico local", defaultUnit: "mg" },
+  { name: "Levobupivacaína", group: "Anestésico local", defaultUnit: "mg" },
+  { name: "Mepivacaína", group: "Anestésico local", defaultUnit: "mg", commonBolus: [200, 400] },
   { name: "Lidocaína subcutánea", group: "Anestésico local", defaultUnit: "mg", commonBolus: [20, 40, 100] },
 
   // Anestésicos locales neuroaxiales (piden concentración % y volumen ml)
@@ -83,6 +106,8 @@ export const DRUGS: DrugDef[] = [
   { name: "Prilocaína hiperbara intradural", group: "Neuroaxial", defaultUnit: "mg", concVol: true },
   { name: "Bupivacaína epidural", group: "Neuroaxial", defaultUnit: "mg", concVol: true },
   { name: "Lidocaína epidural", group: "Neuroaxial", defaultUnit: "mg", concVol: true },
+  { name: "Ropivacaína epidural", group: "Neuroaxial", defaultUnit: "mg", concVol: true },
+  { name: "Cloroprocaína intradural", group: "Neuroaxial", defaultUnit: "mg", concVol: true },
 
   // Opioides neuroaxiales (dosis simple, sin concentración/volumen)
   { name: "Fentanilo intradural", group: "Neuroaxial", defaultUnit: "mcg", commonBolus: [10, 15, 25] },

@@ -82,3 +82,12 @@ export const resetPasswordSchema = z.object({
 export const setActiveSchema = z.object({
   active: z.boolean(),
 });
+
+export const createCustomDrugSchema = z.object({
+  name: z.string().min(1).max(80),
+  group: z.string().max(40).optional(),
+  defaultUnit: z.string().max(16).optional(),
+  commonBolus: z.array(z.number()).max(16).optional(),
+  infusionDoseUnit: z.string().max(24).optional(),
+  concVol: z.boolean().optional(),
+});

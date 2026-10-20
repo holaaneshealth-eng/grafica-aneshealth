@@ -110,6 +110,16 @@ async function request<T>(path: string, method = "GET", body?: unknown): Promise
   return json as T;
 }
 
+// Definición de un fármaco del catálogo personalizado (coincide con DrugDef sin gas/fluid).
+export interface ApiCustomDrug {
+  name: string;
+  group: string;
+  defaultUnit: string;
+  commonBolus?: number[];
+  infusionDoseUnit?: string;
+  concVol?: boolean;
+}
+
 export const api = {
   login: (username: string, password: string) =>
     request<{ user: ApiUser; csrfToken: string }>("/auth/login", "POST", { username, password }),
@@ -141,6 +151,10 @@ export const api = {
     ),
   visionImport: (payload: { imageBase64: string; mimeType: string }) =>
     request<{ readings: { hora: string; parametro: string; valor: number; unidad?: string }[]; fecha?: string | null }>("/vision/import", "POST", payload),
+
+  listCustomDrugs: () => request<{ drugs: ApiCustomDrug[] }>("/custom-drugs"),
+  addCustomDrug: (d: ApiCustomDrug) => request<{ drug: ApiCustomDrug; deduped?: boolean }>("/custom-drugs", "POST", d),
+  deleteCustomDrug: (id: string) => request<{ ok: true }>(`/custom-drugs/${id}`, "DELETE"),
 
   listUsers: () => request<{ users: AdminUserRow[] }>("/users"),
   createUser: (u: { username: string; displayName: string; role: string; location?: string; password: string }) =>
