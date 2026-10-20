@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
-import type { CaseState } from "../domain/events";
+import type { CaseState, ProtectionInfo } from "../domain/events";
 import { useStore } from "../store/store";
 import { AnesthesiaChart, CHARTED } from "../components/AnesthesiaChart";
 import { generateGraphicPages, type ChartPhoto } from "../pdf";
@@ -12,6 +12,8 @@ import { STANDARD_PARAMS } from "../domain/monitoring";
 import { formatNum } from "../domain/calculations";
 import { techniqueDetailLines } from "../domain/techniqueRender";
 import { WHO_PHASES } from "../domain/clinical";
+import { AnesthesiaEndModal } from "../components/AnesthesiaEndModal";
+import { positionById, consciousnessLabel, airwayLabel, oxygenLabel, destinationLabel, bromageLabel, tofLabel, PROTECTION_MEASURES } from "../domain/positions";
 
 interface Props {
   cs: CaseState;
@@ -37,6 +39,8 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
   const emailPending = !!cs.signedAt && !sentOkForCurrent;
   const [busy, setBusy] = useState(false);
   const [mailMsg, setMailMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [showEndPrompt, setShowEndPrompt] = useState(false); // aviso al firmar sin estado al finalizar
+  const [showEndModal, setShowEndModal] = useState(false);
 
   // La tabla seriada excluye las constantes que ya se representan en la gráfica.
   const paramsForTable = [
@@ -205,6 +209,15 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
 
   // Firma la hoja y, acto seguido, envía el PDF por correo (sustituye al envío de imagen).
   function signAndSend() {
+    // Si no se ha registrado el estado al finalizar, se avisa y se ofrece rellenarlo.
+    if (!cs.endState) {
+      setShowEndPrompt(true);
+      return;
+    }
+    doSign();
+  }
+
+  function doSign() {
     // Aviso: perfusiones sin registrar su parada. Se ofrece registrarla antes de firmar.
     const open = cs.infusions.filter((i) => i.active);
     if (open.length > 0) {
@@ -253,6 +266,35 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
     ? `${cs.preop.antibiotic}${cs.preop.antibioticTime ? ` (${hhmm(cs.preop.antibioticTime)})` : ""}`
     : "-";
 
+  // Posición y medidas de protección (para la página de datos).
+  const prot = cs.protection;
+  const protList = prot
+    ? [...PROTECTION_MEASURES.filter((m) => prot[m.key as keyof ProtectionInfo]).map((m) => m.label), ...(prot.other?.trim() ? [prot.other.trim()] : [])]
+    : [];
+  const hasPositions = cs.positions.length > 0;
+
+  // Estado al finalizar: solo los campos rellenados.
+  const es = cs.endState;
+  const endRows: [string, string][] = [];
+  if (es) {
+    if (es.consciousness) endRows.push(["Consciencia", consciousnessLabel(es.consciousness)]);
+    if (es.airway) endRows.push(["Vía aérea", airwayLabel(es.airway)]);
+    if (es.spontaneousVentilation != null) endRows.push(["Ventilación espontánea", es.spontaneousVentilation ? "Sí" : "No"]);
+    if (es.oxygen) endRows.push(["Oxigenoterapia", oxygenLabel(es.oxygen)]);
+    const consts: string[] = [];
+    if (es.tas != null && es.tad != null) consts.push(`TA ${formatNum(es.tas)}/${formatNum(es.tad)}`);
+    if (es.fc != null) consts.push(`FC ${formatNum(es.fc)}`);
+    if (es.spo2 != null) consts.push(`SpO₂ ${formatNum(es.spo2)}%`);
+    if (es.temp != null) consts.push(`Tª ${formatNum(es.temp)}°C`);
+    if (consts.length) endRows.push(["Constantes a la salida", consts.join(" · ")]);
+    if (es.tofOk) endRows.push(["Reversión BNM", tofLabel(es.tofOk)]);
+    if (es.evn != null) endRows.push(["Dolor (EVN)", `${formatNum(es.evn)}/10`]);
+    if (es.nausea != null) endRows.push(["Náuseas / vómitos", es.nausea ? "Sí" : "No"]);
+    if (es.bromage) endRows.push(["Bloqueo motor (Bromage)", bromageLabel(es.bromage)]);
+    if (es.destination) endRows.push(["Destino", destinationLabel(es.destination)]);
+    if (es.notes) endRows.push(["Observaciones", es.notes]);
+  }
+
   return (
     <div>
       {canReopen && (
@@ -291,6 +333,9 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
             Email (texto)
           </button>
         </div>
+        <button className="btn block" style={{ marginTop: 8 }} onClick={() => setShowEndModal(true)}>
+          {cs.endState ? "Editar estado al finalizar la anestesia" : "Registrar estado al finalizar la anestesia"}
+        </button>
         <p className="sub" style={{ marginTop: 8 }}>
           Al firmar, el PDF se envía automáticamente al correo configurado (asunto "Hoja anestesica {cs.ia}") para su archivado.
         </p>
@@ -541,11 +586,71 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
           </>
         )}
 
+        {/* Posición y medidas de protección (solo si hay datos) */}
+        {(hasPositions || protList.length > 0) && (
+          <>
+            <h2>Posición y medidas de protección</h2>
+            {hasPositions && (
+              <div style={{ fontSize: 12 }}>
+                <strong>Posición:</strong>{" "}
+                {cs.positions
+                  .slice()
+                  .sort((a, b) => a.at.localeCompare(b.at))
+                  .map((p) => `${hhmm(p.at)} ${p.label} (${positionById(p.position)?.abbr ?? "OTR"})`)
+                  .join("  ·  ")}
+              </div>
+            )}
+            {protList.length > 0 && (
+              <div style={{ fontSize: 12, marginTop: 4 }}>
+                <strong>Protección:</strong> {protList.join("  ·  ")}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Estado al finalizar la anestesia (solo campos rellenados) */}
+        {endRows.length > 0 && (
+          <>
+            <h2>Estado al finalizar la anestesia</h2>
+            <table className="sheet-preop">
+              <tbody>
+                {endRows.map(([k, v]) => (
+                  <tr key={k}>
+                    <td className="muted" style={{ width: 150 }}>{k}</td>
+                    <td>{v}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+
         <div className="foot">
           <span>Documento pseudonimizado (RGPD). Identificado únicamente por IA.</span>
           <span>{cs.signedAt ? `Firmado: ${cs.signedBy} · ${dmy(cs.signedAt)} ${hhmm(cs.signedAt)}` : "Sin firmar"}</span>
         </div>
       </div>
+
+      {showEndModal && <AnesthesiaEndModal cs={cs} onClose={() => setShowEndModal(false)} onDone={onToast} />}
+      {showEndPrompt && (
+        <div className="modal-backdrop" onClick={() => setShowEndPrompt(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-grip" />
+            <div className="modal-head">
+              <h3>Estado al finalizar la anestesia</h3>
+            </div>
+            <p className="sub">Todavía no has registrado el estado al finalizar la anestesia.</p>
+            <div className="grid2" style={{ marginTop: 8 }}>
+              <button className="btn primary lg" onClick={() => { setShowEndPrompt(false); setShowEndModal(true); }}>
+                Rellenar ahora
+              </button>
+              <button className="btn lg" onClick={() => { setShowEndPrompt(false); doSign(); }}>
+                Firmar sin rellenar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Imagen simplificada (fuera de pantalla) para adjuntar en el informe de SAP:
           solo gráfica, técnicas y cronología de constantes, con letra y símbolos grandes. */}

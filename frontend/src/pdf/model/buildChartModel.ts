@@ -1,4 +1,5 @@
 import type { CaseState, InfusionRecord } from "../../domain/events";
+import { positionById } from "../../domain/positions";
 import { STANDARD_PARAMS, findParam } from "../../domain/monitoring";
 import { formatNum } from "../../domain/calculations";
 import { dmy } from "../../utils/time";
@@ -105,6 +106,7 @@ export function buildChartModel(cs: CaseState, opts: BuildOptions = {}): ChartMo
   });
   cs.techniques.forEach((t) => eventTimes.push(ms(t.at)));
   cs.milestones.forEach((m) => eventTimes.push(ms(m.at)));
+  (cs.positions ?? []).forEach((p) => eventTimes.push(ms(p.at)));
   cs.balances.forEach((b) => eventTimes.push(ms(b.at)));
   cs.bloodProducts.forEach((b) => eventTimes.push(ms(b.at)));
   photos.forEach((p) => eventTimes.push(p.at));
@@ -290,6 +292,10 @@ export function buildChartModel(cs: CaseState, opts: BuildOptions = {}): ChartMo
     .map((m) => ({ at: ms(m.at), abbr: milestoneCode(m.label), label: m.label }))
     .sort((a, b) => a.at - b.at);
 
+  const positions: ChartMilestone[] = (cs.positions ?? [])
+    .map((p) => ({ at: ms(p.at), abbr: positionById(p.position)?.abbr ?? "OTR", label: p.label || positionById(p.position)?.label || p.position }))
+    .sort((a, b) => a.at - b.at);
+
   return {
     sheetNo: cs.ia,
     date: dmy(cs.createdAt),
@@ -302,6 +308,7 @@ export function buildChartModel(cs: CaseState, opts: BuildOptions = {}): ChartMo
     fluidInputs,
     fluidOutputs,
     milestones,
+    positions,
     via1,
     photos,
   };

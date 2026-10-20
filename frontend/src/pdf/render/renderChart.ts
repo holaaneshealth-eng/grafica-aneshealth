@@ -491,8 +491,14 @@ function drawFooter(doc: jsPDF, model: ChartModel) {
   // (la numeración de página "Página X de Y" la estampa el generador del PDF al final,
   //  de forma única y consecutiva para TODO el documento. Aquí solo va la leyenda.)
 
+  // Leyenda de posiciones (código = etiqueta, sin duplicados).
+  const posSeen = new Set<string>();
+  const posLegend = model.positions
+    .filter((p) => (posSeen.has(p.abbr) ? false : (posSeen.add(p.abbr), true)))
+    .map((p) => `${p.abbr}=${p.label}`)
+    .join("  ·  ");
   const legend =
-    milestoneLegend(model.milestones.map((m) => m.label)) +
+    [milestoneLegend(model.milestones.map((m) => m.label)), posLegend ? `Posición: ${posLegend}` : ""].filter(Boolean).join("   ·   ") +
     "   ·   TA roja (⟂·) = no invasiva   ·   TA azul (▲▼□) = invasiva (PA)   ·   celda sombreada = fuera de rango   ·   barra = perfusión   ·   línea fina = valor mantenido";
   doc.setFontSize(FONT_AXIS_PT - 0.5);
   doc.setTextColor(90, 90, 90);
@@ -554,6 +560,14 @@ function drawMilestones(
     // etiqueta vertical (lee de abajo arriba), centrada sobre la línea
     doc.setTextColor(40, 70, 150);
     doc.text(m.abbr, x + ptToMm(FONT_AXIS_PT) * 0.36, bandsTop - 0.8, { angle: 90, baseline: "alphabetic" });
+  }
+  // Cambios de posición: SOLO abreviatura en la franja (color distinto, sin línea vertical,
+  // para no confundirlos con los hitos).
+  for (const p of model.positions) {
+    if (p.at < w.start || p.at >= w.end) continue;
+    const x = xOf(p.at, w, plotLeft, colWidth);
+    doc.setTextColor(30, 120, 60);
+    doc.text(p.abbr, x + ptToMm(FONT_AXIS_PT) * 0.36, bandsTop - 0.8, { angle: 90, baseline: "alphabetic" });
   }
 }
 
