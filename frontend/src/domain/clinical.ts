@@ -105,6 +105,29 @@ export const LACTATION: Record<string, { level: LactationLevel; note?: string }>
   Ciprofloxacino: { level: "compatible", note: "preferibles alternativas si uso prolongado" },
 };
 
+// ---- Dosis máxima habitual de anestésicos locales (ORIENTATIVA, mg/kg) ----
+// `plain` = sin vasoconstrictor; `epi` = con adrenalina. La toxicidad es ADITIVA entre
+// anestésicos locales, por lo que se suman los porcentajes de la dosis máxima de cada uno.
+// El orden importa: "levobupivac" antes que "bupivac" (una contiene a la otra).
+// Las claves son prefijos SIN la vocal acentuada (p. ej. "lidoca", no "lidocaína"), para
+// que la coincidencia por subcadena no falle por el acento (í en -caína).
+export const LOCAL_ANESTHETIC_MAX: { key: string; label: string; plain: number; epi: number }[] = [
+  { key: "levobupivac", label: "Levobupivacaína", plain: 2, epi: 2 },
+  { key: "bupivac", label: "Bupivacaína", plain: 2, epi: 2 },
+  { key: "ropivac", label: "Ropivacaína", plain: 3, epi: 3 },
+  { key: "mepivac", label: "Mepivacaína", plain: 5, epi: 7 },
+  { key: "priloca", label: "Prilocaína", plain: 6, epi: 8 },
+  { key: "cloroproca", label: "Cloroprocaína", plain: 11, epi: 14 },
+  { key: "lidoca", label: "Lidocaína", plain: 4.5, epi: 7 },
+];
+
+export function localAnestheticMax(name: string, withAdrenaline = false): { label: string; mgPerKg: number } | undefined {
+  const n = name.trim().toLowerCase();
+  if (!n) return undefined;
+  const hit = LOCAL_ANESTHETIC_MAX.find((l) => n.includes(l.key));
+  return hit ? { label: hit.label, mgPerKg: withAdrenaline ? hit.epi : hit.plain } : undefined;
+}
+
 export function lactationFor(name: string): { level: LactationLevel; note?: string } | undefined {
   const n = name.trim().toLowerCase();
   const key = Object.keys(LACTATION).find((k) => k.toLowerCase() === n || n.includes(k.toLowerCase()));

@@ -33,6 +33,13 @@ interface Seg {
   label: string;
 }
 
+// Perfusión de "ritmo simple" no ponderada (p. ej. oxitocina en UI/h, amiodarona en mg/h):
+// devuelve la unidad base del total (UI, mg, µg) a partir de la unidad del ritmo.
+function simpleRateBaseUnit(doseUnit?: string): string | null {
+  const m = /^(UI|mg|mcg|µg)\s*\/\s*h$/i.exec((doseUnit ?? "").trim());
+  return m ? prettyUnit(m[1]) : null;
+}
+
 function infusionRowUnit(inf: InfusionRecord): string {
   if (inf.tci) return prettyUnit(inf.tciUnit ?? "µg/ml");
   if (inf.gas) return "%";
@@ -215,15 +222,18 @@ export function buildChartModel(cs: CaseState, opts: BuildOptions = {}): ChartMo
       rowUnit = infusionRowUnit(inf) || rowUnit;
       for (const s of buildSegments(inf, anesthesiaEndAt)) infusions.push(s);
       if (!inf.tci && !inf.gas) {
+        // Perfusión de ritmo simple (UI/h, mg/h): el total se integra en su unidad base.
+        const simpleUnit = simpleRateBaseUnit(inf.doseUnit);
         // unidad de masa a partir de la concentración de la jeringa (p. ej. "mcg/ml" -> µg).
         const massUnit = inf.concentration > 0 && inf.concentrationUnit ? prettyUnit(inf.concentrationUnit.replace(/\s*\/\s*ml$/i, "")) : null;
         const chs = (inf.changes ?? []).slice().sort((a, b) => a.at.localeCompare(b.at));
         for (let i = 0; i < chs.length; i++) {
           if (chs[i].stop) continue;
           const to = chs[i + 1] ? ms(chs[i + 1].at) : inf.stoppedAt ? ms(inf.stoppedAt) : anesthesiaEndAt;
-          const ml = (chs[i].rateMlH * (to - ms(chs[i].at))) / 3_600_000;
-          if (massUnit) massByUnit.set(massUnit, (massByUnit.get(massUnit) ?? 0) + ml * inf.concentration);
-          else infVolNoConcMl += ml;
+          const amt = (chs[i].rateMlH * (to - ms(chs[i].at))) / 3_600_000; // ritmo × horas
+          if (simpleUnit) massByUnit.set(simpleUnit, (massByUnit.get(simpleUnit) ?? 0) + amt);
+          else if (massUnit) massByUnit.set(massUnit, (massByUnit.get(massUnit) ?? 0) + amt * inf.concentration);
+          else infVolNoConcMl += amt;
         }
       }
       // total infundido según bomba (TCI finalizada)

@@ -3,11 +3,24 @@ import { Modal } from "./Modal";
 import { TimeField } from "./TimeField";
 import { TemplatePanel } from "./TemplatePanel";
 import { DRUG_UNITS, drugByName, drugsForMode, dilutionsFor, tciInfo } from "../domain/drugs";
-import { computeInfusion, rateFromDose, formatNum, type DoseRateUnit, type MassUnit } from "../domain/calculations";
+import { computeInfusion, rateFromDose, formatNum, round, type DoseRateUnit, type MassUnit } from "../domain/calculations";
 import { useStore } from "../store/store";
 import type { CaseState, InfusionRecord } from "../domain/events";
 import { nowLocalInput, isoFromLocalInput, durationBetween } from "../utils/time";
-import { lactationFor, PED_DOSES, type PedDose } from "../domain/clinical";
+import { lactationFor, localAnestheticMax, PED_DOSES, type PedDose } from "../domain/clinical";
+
+// Perfusión de "ritmo simple" no ponderada (p. ej. oxitocina UI/h, amiodarona mg/h).
+const SIMPLE_RATE_RE = /^(UI|mg|mcg|µg)\s*\/\s*h$/i;
+const isSimpleRateDoseUnit = (u?: string): boolean => !!u && SIMPLE_RATE_RE.test(u.trim());
+
+// Vía por defecto inferida del nombre para anestésicos locales con conc./volumen.
+function inferRoute(name: string): string | null {
+  const n = name.toLowerCase();
+  if (n.includes("epidural")) return "Epidural";
+  if (n.includes("intradural")) return "Intradural";
+  if (n.includes("perineural") || n.includes("bloqueo")) return "Perineural";
+  return null;
+}
 
 interface Props {
   cs: CaseState;
@@ -37,6 +50,7 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
   const [unit, setUnit] = useState("mg");
   const [route, setRoute] = useState("IV"); // vía de administración (bolo/perfusión)
   const [routeOther, setRouteOther] = useState(""); // vía en texto libre cuando route = "Otra…"
+  const [withAdr, setWithAdr] = useState(false); // anestésico local administrado con adrenalina
   const [conc, setConc] = useState(""); // neuroaxial %
   const [volml, setVolml] = useState(""); // neuroaxial ml
 
@@ -69,10 +83,78 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
     addCustomDrug({ name, group: "Otro", defaultUnit: opts.unit ?? "mg", infusionDoseUnit: opts.infusionDoseUnit });
   }
 
+  // mg entregados por una perfusión de anestésico local (p. ej. lidocaína IV) hasta `untilMs`.
+  function infusionMgUpTo(inf: InfusionRecord, untilMs: number): number {
+    const concMgPerMl = inf.concentrationUnit && /mcg|µg/i.test(inf.concentrationUnit) ? inf.concentration / 1000 : inf.concentration;
+    if (!(concMgPerMl > 0)) return 0;
+    const chs = (inf.changes ?? []).slice().sort((a, b) => a.at.localeCompare(b.at));
+    let mg = 0;
+    for (let i = 0; i < chs.length; i++) {
+      if (chs[i].stop) continue;
+      const fromMs = new Date(chs[i].at).getTime();
+      if (fromMs >= untilMs) continue;
+      const nextMs = chs[i + 1] ? new Date(chs[i + 1].at).getTime() : inf.stoppedAt ? new Date(inf.stoppedAt).getTime() : untilMs;
+      const toMs = Math.min(nextMs, untilMs);
+      if (toMs <= fromMs) continue;
+      mg += ((chs[i].rateMlH * (toMs - fromMs)) / 3_600_000) * concMgPerMl;
+    }
+    return mg;
+  }
+
+  // Aviso de dosis máxima de anestésicos locales (toxicidad ADITIVA): para cada anestésico
+  // local del caso (bolos + perfusión de lidocaína, con/sin adrenalina según cada
+  // administración) se calcula el % de su dosis máxima para el peso, y se SUMAN los %.
+  // Avisa si la suma supera el 100 %, con el desglose por fármaco. Devuelve true si se
+  // puede guardar (no aplica, no supera, o el usuario lo confirma).
+  function localMaxOk(triggerDrug: string, at: string, newBolusMg: number, adrenaline: boolean): boolean {
+    if (!localAnestheticMax(triggerDrug)) return true; // solo al registrar un anestésico local
+    const w = cs.preop.weightKg;
+    if (!w || w <= 0) {
+      return window.confirm("Sin peso registrado: no se puede comprobar la dosis máxima de anestésicos locales.\n\n¿Guardar de todas formas?");
+    }
+    const untilMs = new Date(at).getTime();
+    const items: { drug: string; mg: number; adrenaline?: boolean }[] = [];
+    cs.boluses.forEach((b) => {
+      if (!localAnestheticMax(b.drug)) return;
+      const mg = b.unit === "mg" ? b.dose : b.unit === "mcg" ? b.dose / 1000 : 0;
+      if (mg > 0) items.push({ drug: b.drug, mg, adrenaline: b.adrenaline });
+    });
+    cs.infusions.forEach((inf) => {
+      if (!localAnestheticMax(inf.drug)) return;
+      const mg = infusionMgUpTo(inf, untilMs);
+      if (mg > 0) items.push({ drug: inf.drug, mg, adrenaline: inf.adrenaline });
+    });
+    if (newBolusMg > 0) items.push({ drug: triggerDrug, mg: newBolusMg, adrenaline });
+
+    const byLabel = new Map<string, { mg: number; pct: number }>();
+    let total = 0;
+    for (const it of items) {
+      const info = localAnestheticMax(it.drug, it.adrenaline);
+      if (!info) continue;
+      const maxMg = info.mgPerKg * w;
+      const pct = maxMg > 0 ? (it.mg / maxMg) * 100 : 0;
+      total += pct;
+      const cur = byLabel.get(info.label) ?? { mg: 0, pct: 0 };
+      cur.mg += it.mg;
+      cur.pct += pct;
+      byLabel.set(info.label, cur);
+    }
+    if (total <= 100) return true;
+    const lines = Array.from(byLabel.entries())
+      .map(([label, v]) => `• ${label}: ${formatNum(round(v.mg, 1))} mg (${formatNum(round(v.pct, 0))} %)`)
+      .join("\n");
+    return window.confirm(
+      `Dosis acumulada de anestésicos locales: ${formatNum(round(total, 0))} % de la máxima para ${formatNum(w)} kg (la toxicidad es aditiva).\n\n${lines}\n\n¿Guardar de todas formas?`,
+    );
+  }
+
   const def = drugByName(drug);
   const isGas = !!def?.gas;
   const isFluid = !!def?.fluid;
   const isConcVol = !!def?.concVol;
+  const isSimpleRate = !!def?.infusionRateUnit; // perfusión de ritmo simple (UI/h, mg/h)
+  const simpleRateUnit = def?.infusionRateUnit ?? "";
+  const isLocalAnesthetic = !!localAnestheticMax(drug);
   const isPropofol = drug.trim().toLowerCase() === "propofol";
   const isTci = rateUnit.startsWith("TCI");
   const isMlh = rateUnit === "ml/h";
@@ -147,9 +229,13 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
       if (d.defaultUnit === "mg" || d.defaultUnit === "mcg") setAmountUnit(d.defaultUnit as MassUnit);
       if (d.infusionDoseUnit) setDoseUnit(d.infusionDoseUnit as DoseRateUnit);
       if (d.gas || d.fluid) setMode("infusion");
-      if (d.concVol) setRoute("Intradural");
+      // Vía por defecto: la declarada en el catálogo; si no, inferida del nombre para
+      // anestésicos locales con conc./volumen; si no, IV.
+      if (d.defaultRoute) setRoute(d.defaultRoute);
+      else if (d.concVol) setRoute(inferRoute(name) ?? "Intradural");
       else if (!d.gas && !d.fluid) setRoute("IV");
     }
+    setWithAdr(false);
     const running = cs.infusions.find((i) => i.active && i.drug.trim().toLowerCase() === name.trim().toLowerCase());
     if (running) setMode("infusion");
   }
@@ -205,15 +291,18 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
     const at = isoFromLocalInput(time);
     if (isConcVol) {
       if (!drug || !concVolDose) return;
-      append(cs.caseId, "DRUG_BOLUS", { id: rid(), drug, dose: concVolDose, unit: "mg", at, route: effRoute, concentration: parseFloat(conc.replace(",", ".")), volumeMl: parseFloat(volml.replace(",", ".")) }, at);
+      if (!localMaxOk(drug, at, concVolDose, withAdr)) return;
+      append(cs.caseId, "DRUG_BOLUS", { id: rid(), drug, dose: concVolDose, unit: "mg", at, route: effRoute, concentration: parseFloat(conc.replace(",", ".")), volumeMl: parseFloat(volml.replace(",", ".")), ...(withAdr ? { adrenaline: true } : {}) }, at);
       onDone(`${drug} ${formatNum(concVolDose)} mg`);
       onClose();
       return;
     }
     const d = parseFloat(dose.replace(",", "."));
     if (!drug || !d) return;
+    const thisMg = unit === "mg" ? d : unit === "mcg" ? d / 1000 : 0;
+    if (!localMaxOk(drug, at, thisMg, withAdr)) return;
     registerIfCustom({ unit });
-    append(cs.caseId, "DRUG_BOLUS", { id: rid(), drug, dose: d, unit, at, route: effRoute }, at);
+    append(cs.caseId, "DRUG_BOLUS", { id: rid(), drug, dose: d, unit, at, route: effRoute, ...(withAdr && isLocalAnesthetic ? { adrenaline: true } : {}) }, at);
     onDone(`${drug} ${formatNum(d)} ${unit} registrado`);
     onClose();
   }
@@ -235,9 +324,32 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
     onClose();
   }
 
+  // Perfusión de ritmo simple (oxitocina UI/h, amiodarona mg/h): se registra el ritmo tal cual.
+  function saveNewSimpleRate() {
+    const unit = def?.infusionRateUnit;
+    if (!drug || !unit) return;
+    const r = parseFloat(rate.replace(",", "."));
+    if (!isFinite(r) || r <= 0) return;
+    const at = isoFromLocalInput(time);
+    const base = unit.replace(/\s*\/\s*h$/i, ""); // UI/h -> UI, mg/h -> mg
+    append(
+      cs.caseId,
+      "INFUSION_STARTED",
+      {
+        id: rid(), drug, route: effRoute,
+        amount: 0, amountUnit: "mg", diluentVolumeMl: 0, concentration: 0, concentrationUnit: base,
+        rateMlH: r, weightBasedDose: r, doseUnit: unit, summary: `${formatNum(r)} ${unit}`, startedAt: at, active: true,
+      },
+      at,
+    );
+    onDone(`Perfusión ${drug} ${formatNum(r)} ${unit} iniciada`);
+    onClose();
+  }
+
   function saveNewInfusion() {
     if (isGas) return saveNewGas();
     if (isFluid) return saveNewFluid();
+    if (isSimpleRate) return saveNewSimpleRate();
     const at = isoFromLocalInput(time);
     const w = parseFloat(weight.replace(",", "."));
     if (isTci) {
@@ -261,11 +373,12 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
       return;
     }
     if (!drug || !calc) return;
+    if (!localMaxOk(drug, at, 0, withAdr)) return;
     if (w && w !== cs.preop.weightKg) append(cs.caseId, "WEIGHT_UPDATED", { weightKg: w });
     registerIfCustom({ unit: amountUnit, infusionDoseUnit: calc.doseUnit });
     let summary = calc.summary;
     if (isPropofol && propofolMgKgH && !calc.doseUnit.startsWith("mg/kg/h")) summary = `${calc.summary} · ${formatNum(propofolMgKgH.weightBasedDose)} mg/kg/h`;
-    append(cs.caseId, "INFUSION_STARTED", { id: rid(), drug, route: effRoute, amount: parseFloat(amount.replace(",", ".")), amountUnit, diluentVolumeMl: parseFloat(diluent.replace(",", ".")), concentration: calc.concentration, concentrationUnit: calc.concentrationUnit, rateMlH: calc.effRateMlH, weightBasedDose: calc.weightBasedDose, doseUnit: calc.doseUnit, summary, startedAt: at, active: true }, at);
+    append(cs.caseId, "INFUSION_STARTED", { id: rid(), drug, route: effRoute, amount: parseFloat(amount.replace(",", ".")), amountUnit, diluentVolumeMl: parseFloat(diluent.replace(",", ".")), concentration: calc.concentration, concentrationUnit: calc.concentrationUnit, rateMlH: calc.effRateMlH, weightBasedDose: calc.weightBasedDose, doseUnit: calc.doseUnit, summary, startedAt: at, active: true, ...(withAdr && isLocalAnesthetic ? { adrenaline: true } : {}) }, at);
     onDone(`Perfusión ${drug} iniciada`);
     onClose();
   }
@@ -317,6 +430,16 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
       onClose();
       return;
     }
+    if (isSimpleRateDoseUnit(activeInf.doseUnit)) {
+      const r = parseFloat(newRate.replace(",", "."));
+      if (isNaN(r)) return;
+      const stop = r === 0;
+      const unit = activeInf.doseUnit;
+      append(cs.caseId, "INFUSION_RATE_CHANGED", { id: activeInf.id, drug: activeInf.drug, rateMlH: r, weightBasedDose: r, doseUnit: unit, summary: stop ? "Fin" : `${formatNum(r)} ${unit}` }, at);
+      onDone(stop ? `Fin de perfusión: ${activeInf.drug}` : `Ritmo actualizado: ${activeInf.drug}`);
+      onClose();
+      return;
+    }
     const r = parseFloat(newRate.replace(",", "."));
     if (isNaN(r)) return;
     if (r === 0) {
@@ -325,6 +448,7 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
       onClose();
       return;
     }
+    if (!localMaxOk(activeInf.drug, at, 0, activeInf.adrenaline ?? false)) return;
     if (!changeCalc) return;
     let summary = changeCalc.summary;
     if (activeInf.drug.toLowerCase() === "propofol" && !changeCalc.doseUnit.startsWith("mg/kg/h") && cs.preop.weightKg) {
@@ -448,10 +572,19 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
             </div>
           )}
 
+          {!showChangeMode && isLocalAnesthetic && (
+            <div className="field">
+              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                <input type="checkbox" checked={withAdr} onChange={(e) => setWithAdr(e.target.checked)} />
+                Con adrenalina (vasoconstrictor) — usa la dosis máxima mayor
+              </label>
+            </div>
+          )}
+
           {mode === "bolus" ? (
             isConcVol ? (
               <>
-                <div className="alert">Anestésico local neuroaxial: indica concentración y volumen.</div>
+                <div className="alert">Anestésico local: indica concentración y volumen (se calculan los mg).</div>
                 <div className="row">
                   <div className="field">
                     <label>Concentración (%)</label>
@@ -581,6 +714,16 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
                     {newRate === "0" ? "Finalizar perfusión" : "Actualizar objetivo TCI"}
                   </button>
                 </>
+              ) : isSimpleRateDoseUnit(activeInf!.doseUnit) ? (
+                <>
+                  <div className="field">
+                    <label>Nuevo ritmo ({activeInf!.doseUnit}) — escribe 0 para finalizar</label>
+                    <input inputMode="decimal" type="text" value={newRate} onChange={(e) => setNewRate(e.target.value)} placeholder="Ej. 6 · 0 = fin" autoFocus />
+                  </div>
+                  <button className={`btn block lg ${newRate === "0" ? "danger" : "primary"}`} onClick={saveRateChange} disabled={newRate === ""}>
+                    {newRate === "0" ? "Finalizar perfusión" : "Actualizar ritmo"}
+                  </button>
+                </>
               ) : (
                 <>
                   <div className="field">
@@ -615,6 +758,17 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
               <div className="alert">Suero: se cargan {FLUID_VOLUME} ml automáticamente. Para terminarlo, vuelve a pulsarlo y finaliza (calcula el ritmo medio).</div>
               <button className="btn primary block lg" onClick={saveNewFluid} disabled={!drug}>
                 Iniciar {drug || "suero"} ({FLUID_VOLUME} ml)
+              </button>
+            </>
+          ) : isSimpleRate ? (
+            <>
+              <div className="alert">Perfusión en {simpleRateUnit}: indica el ritmo. Para cambiarlo o finalizarlo, vuelve a pulsar el fármaco.</div>
+              <div className="field">
+                <label>Ritmo ({simpleRateUnit})</label>
+                <input inputMode="decimal" type="text" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="Ej. 3" autoFocus />
+              </div>
+              <button className="btn primary block lg" onClick={saveNewSimpleRate} disabled={!drug || !rate}>
+                Iniciar perfusión
               </button>
             </>
           ) : (
