@@ -7,6 +7,9 @@ import {
   type VitalsRecord,
   type IncidentRecord,
   type MilestoneRecord,
+  type PositionRecord,
+  type ProtectionInfo,
+  type EndStateInfo,
   type TechniqueRecord,
   type BloodProductRecord,
   type LabRecord,
@@ -205,6 +208,14 @@ function applyEvent(state: CaseState, e: BaseEvent): CaseState {
       return { ...state, milestones: state.milestones.map((m) => (m.id === p.id ? { ...m, at: p.at as string } : m)) };
     case "MILESTONE_REMOVED":
       return { ...state, milestones: state.milestones.filter((m) => m.id !== p.id) };
+    case "POSITION_SET":
+      return { ...state, positions: [...(state.positions ?? []), p as unknown as PositionRecord] };
+    case "POSITION_REMOVED":
+      return { ...state, positions: (state.positions ?? []).filter((x) => x.id !== p.id) };
+    case "PROTECTION_SET":
+      return { ...state, protection: p as unknown as ProtectionInfo };
+    case "ANESTHESIA_END_STATE_SET":
+      return { ...state, endState: p as unknown as EndStateInfo };
     case "BLOOD_PRODUCT":
       return { ...state, bloodProducts: [...state.bloodProducts, p as unknown as BloodProductRecord] };
     case "BLOOD_PRODUCT_REMOVED":

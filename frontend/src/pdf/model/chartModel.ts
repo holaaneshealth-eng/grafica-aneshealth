@@ -106,6 +106,9 @@ export interface ChartModel {
   fluidInputs: FluidInputRow[];
   fluidOutputs: FluidOutputRow[];
   milestones: ChartMilestone[];
+  // Cambios de posición quirúrgica: se dibujan SOLO como abreviatura en la franja de
+  // hitos (sin línea vertical a lo largo de la cuadrícula, para no confundir con los hitos).
+  positions: ChartMilestone[];
   // Vía 1: en las páginas de gráfica, la banda hemodinámica y las filas del monitor se
   // sustituyen por las fotos de cada franja. Las filas del respirador/fármacos/líquidos
   // y las líneas de hitos se mantienen.

@@ -30,6 +30,10 @@ export type EventType =
   | "MILESTONE"
   | "MILESTONE_TIME_CHANGED"
   | "MILESTONE_REMOVED"
+  | "POSITION_SET"
+  | "POSITION_REMOVED"
+  | "PROTECTION_SET"
+  | "ANESTHESIA_END_STATE_SET"
   | "INCIDENT"
   | "INCIDENT_REMOVED"
   | "BLOOD_PRODUCT"
@@ -194,6 +198,47 @@ export interface MilestoneRecord {
   label: string;
 }
 
+// Posición quirúrgica con su hora (cada cambio es un registro nuevo).
+export interface PositionRecord {
+  id: string;
+  at: string;
+  position: string; // id de POSITIONS (supino, prono, ...)
+  label: string; // etiqueta mostrada (para "otra", el texto libre)
+  note?: string;
+}
+
+// Medidas de protección del paciente (selección múltiple; último registro gana).
+export interface ProtectionInfo {
+  ocular?: boolean;
+  padding?: boolean;
+  armsAbduction?: boolean;
+  activeWarming?: boolean;
+  fluidWarmer?: boolean;
+  pneumaticCompression?: boolean;
+  cauteryPad?: boolean;
+  other?: string;
+}
+
+// Estado del paciente al finalizar la anestesia (último registro gana).
+export interface EndStateInfo {
+  consciousness?: string;
+  airway?: string;
+  spontaneousVentilation?: boolean;
+  oxygen?: string;
+  tas?: number;
+  tad?: number;
+  fc?: number;
+  spo2?: number;
+  temp?: number;
+  tofOk?: string; // "si" | "no" | "no_monitorizado"
+  evn?: number;
+  nausea?: boolean;
+  bromage?: string; // "0".."3"
+  destination?: string;
+  notes?: string;
+  at?: string; // hora de registro
+}
+
 export interface BloodProductRecord {
   id: string;
   at: string;
@@ -241,6 +286,9 @@ export interface CaseState {
   monitorPhotos: MonitorPhotoRecord[]; // fotos guardadas (Vía 1)
   incidents: IncidentRecord[];
   milestones: MilestoneRecord[];
+  positions: PositionRecord[];
+  protection: ProtectionInfo | null;
+  endState: EndStateInfo | null;
   bloodProducts: BloodProductRecord[];
   labs: LabRecord[];
   balances: BalanceRecord[];
@@ -271,6 +319,9 @@ export function emptyCaseState(caseId: string, ia: string, year: number, ordinal
     monitorPhotos: [],
     incidents: [],
     milestones: [],
+    positions: [],
+    protection: null,
+    endState: null,
     bloodProducts: [],
     labs: [],
     balances: [],

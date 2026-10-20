@@ -9,6 +9,8 @@ import { BloodProductModal } from "../components/BloodProductModal";
 import { LabModal } from "../components/LabModal";
 import { VitalsModal } from "../components/VitalsModal";
 import { MonitorCapture } from "../components/MonitorCapture";
+import { PositionProtectionSection } from "../components/PositionProtectionSection";
+import { AnesthesiaEndModal } from "../components/AnesthesiaEndModal";
 import { Modal } from "../components/Modal";
 import { TimeField } from "../components/TimeField";
 import type { VitalsRecord } from "../domain/events";
@@ -16,7 +18,7 @@ import { hhmm, nowLocalInput, isoFromLocalInput, isoToLocalInput } from "../util
 import { formatNum } from "../domain/calculations";
 import { EXPOSURE_OPTIONS, insensibleLoss, WHO_PHASES } from "../domain/clinical";
 import { techniqueDetailLines } from "../domain/techniqueRender";
-import { MILESTONE_QUICK } from "../pdf/config/milestones";
+import { MILESTONE_QUICK, milestoneCode } from "../pdf/config/milestones";
 import { VENT_MODES } from "../pdf/config/chartParams";
 
 interface Props {
@@ -402,6 +404,7 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
   const [msLocked, setMsLocked] = useState(false); // hito rápido: etiqueta fija, hora editable
   const [bloodOpen, setBloodOpen] = useState(false);
   const [labOpen, setLabOpen] = useState(false);
+  const [showEndModal, setShowEndModal] = useState(false);
   const [editVitals, setEditVitals] = useState<VitalsRecord | null>(null);
   // Confirmación de borrado (evita eliminaciones accidentales de un toque).
   const [pendingDelete, setPendingDelete] = useState<{ msg: string; act: () => void } | null>(null);
@@ -520,14 +523,17 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
     onToast?.("Bolo modificado");
   }
   function addCustomMilestone() {
-    if (!msText.trim()) return;
+    const label = msText.trim();
+    if (!label) return;
     const at = isoFromLocalInput(msTime);
-    append(cs.caseId, "MILESTONE", { id: "m-" + Date.now(), at, label: msText.trim() }, at);
+    append(cs.caseId, "MILESTONE", { id: "m-" + Date.now(), at, label }, at);
     setMsText("");
     setMsTime(nowLocalInput());
     setShowMilestone(false);
     setMsLocked(false);
     onToast?.("Hito registrado");
+    // Al registrar "Fin de anestesia", se ofrece rellenar el estado al finalizar.
+    if (milestoneCode(label) === "FAN") setShowEndModal(true);
   }
 
   const toast = (m: string) => onToast?.(m);
@@ -656,6 +662,21 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
             </div>
           </>
         )}
+      </div>
+
+      <PositionProtectionSection cs={cs} onToast={onToast} />
+
+      <div className="card">
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <h2 style={{ flex: 1 }}>Estado al finalizar la anestesia</h2>
+          <button className="btn" onClick={() => setShowEndModal(true)}>
+            {cs.endState ? "Editar" : "Rellenar"}
+          </button>
+        </div>
+        <p className="sub">
+          Se abre automáticamente al registrar el hito «Fin de anestesia».
+          {cs.endState ? " Registrado — puedes editarlo." : " Aún no registrado."}
+        </p>
       </div>
 
       {(cs.boluses.length > 0 || cs.infusions.length > 0) && (
@@ -932,6 +953,7 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
         </div>
       </div>
 
+      {showEndModal && <AnesthesiaEndModal cs={cs} onClose={() => setShowEndModal(false)} onDone={toast} />}
       {bloodOpen && <BloodProductModal cs={cs} onClose={() => setBloodOpen(false)} onDone={toast} />}
       {labOpen && <LabModal cs={cs} onClose={() => setLabOpen(false)} onDone={toast} />}
       {editVitals && <VitalsModal cs={cs} edit={editVitals} onClose={() => setEditVitals(null)} onDone={toast} />}
