@@ -7,6 +7,7 @@ import { Home } from "./screens/Home";
 import { Phase1, phase1Complete } from "./screens/Phase1";
 import { Phase2, phase2Ready } from "./screens/Phase2";
 import { Summary } from "./screens/Summary";
+import { LaborScreen } from "./screens/LaborScreen";
 import { DrugModal } from "./components/DrugModal";
 import { VitalsModal } from "./components/VitalsModal";
 import { IncidentModal } from "./components/IncidentModal";
@@ -115,6 +116,8 @@ export default function App() {
   const canSign = !!activeCase && (user.role === "admin" || (activeCase.ownerUserId === user.id && activeCase.status !== "signed"));
   const canReopen = !!activeCase && activeCase.status === "closed" && (user.role === "admin" || activeCase.ownerUserId === user.id);
   const showEditingFlow = cs && writable && cs.phase !== "CLOSED";
+  // Analgesia de parto en curso (aún no convertida a cesárea): flujo propio.
+  const laborActive = !!cs && cs.caseType === "analgesia_parto" && !cs.convertedAt;
 
   // Recordatorio de constantes: minutos desde el último registro.
   const lastVitalsMs = cs
@@ -223,7 +226,9 @@ export default function App() {
                   </div>
                 )}
 
-                {showEditingFlow && (
+                {showEditingFlow && laborActive && <LaborScreen cs={cs} onToast={showToast} />}
+
+                {showEditingFlow && !laborActive && (
                   <div className="stepper no-print">
                     <div className={`step ${cs.phase === "PREOP" ? "active" : "done"}`}>1. Preparación</div>
                     <div className={`step ${cs.phase === "OR" ? "active" : ""}`}>2. Quirófano</div>
@@ -231,7 +236,7 @@ export default function App() {
                   </div>
                 )}
 
-                {showEditingFlow && cs.phase === "PREOP" && (
+                {showEditingFlow && !laborActive && cs.phase === "PREOP" && (
                   <>
                     <Phase1 cs={cs} />
                     <button className="btn primary block lg no-print" disabled={!phase1Complete(cs)} onClick={advanceFromPhase1}>
@@ -240,7 +245,7 @@ export default function App() {
                   </>
                 )}
 
-                {showEditingFlow && cs.phase === "OR" && antibioticReminder && (
+                {showEditingFlow && !laborActive && cs.phase === "OR" && antibioticReminder && (
                   <div className="alert danger" style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <span style={{ flex: 1 }}>
                       💉 Redosis de antibiótico: <strong>{antibioticReminder.label}</strong> — han pasado{" "}
@@ -252,7 +257,7 @@ export default function App() {
                   </div>
                 )}
 
-                {showEditingFlow && cs.phase === "OR" && (
+                {showEditingFlow && !laborActive && cs.phase === "OR" && (
                   <>
                     <Phase2 cs={cs} onToast={showToast} onAddVitalsAt={openVitalsAt} />
                     <button

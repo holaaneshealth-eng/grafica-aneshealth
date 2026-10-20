@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useStore, daysUntilPurge, RETENTION_DAYS } from "../store/store";
 import { dmy, hhmm } from "../utils/time";
 import type { ApiCase } from "../api";
+import type { CaseType } from "../domain/labor";
 
 interface Props {
   onOpen: (id: string) => void;
@@ -14,7 +15,12 @@ export function Home({ onOpen, onToast }: Props) {
   const createCase = useStore((s) => s.createCase);
   const deleteCase = useStore((s) => s.deleteCase);
   const canWrite = useStore((s) => s.canWrite);
+  const settings = useStore((s) => s.settings);
   const [creating, setCreating] = useState(false);
+  // En partos, el tipo por defecto es "Analgesia de parto".
+  const defaultType: CaseType =
+    (user.location ?? "").toLowerCase().includes("parto") || user.username === "partos" ? "analgesia_parto" : "quirofano";
+  const [newType, setNewType] = useState<CaseType>(defaultType);
 
   const active = cases.filter((c) => c.status === "active");
   const unsigned = cases.filter((c) => c.status === "closed"); // cerrado pero sin firmar
@@ -22,10 +28,23 @@ export function Home({ onOpen, onToast }: Props) {
 
   async function newCase() {
     setCreating(true);
-    const id = await createCase();
+    const id = await createCase(newType);
     setCreating(false);
     if (id) onOpen(id);
     else onToast("No se pudo crear el caso (necesitas conexión)");
+  }
+
+  // Recordatorios de parto para la lista: cuándo toca el primer test y la reevaluación.
+  function laborReminder(c: ApiCase): string | null {
+    if (c.caseType !== "analgesia_parto" || c.status !== "active" || !c.laborLoadingAt) return null;
+    const base = new Date(c.laborLoadingAt).getTime();
+    const now = Date.now();
+    const testAt = base + settings.laborFirstTestMin * 60000;
+    const reevalAt = base + settings.laborReevalMin * 60000;
+    const fmt = (t: number) => new Date(t).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+    if (now < testAt) return `Primer test de deambulación a las ${fmt(testAt)}`;
+    if (now < reevalAt) return `Reevaluación a las ${fmt(reevalAt)}`;
+    return `Reevaluación vencida (desde las ${fmt(reevalAt)})`;
   }
 
   async function confirmDelete(c: ApiCase) {
@@ -58,6 +77,12 @@ export function Home({ onOpen, onToast }: Props) {
           <div className="sub" style={{ margin: "2px 0 0", color: soon ? "var(--warn)" : "var(--text-dim)" }}>
             Autoborrado en {Math.max(0, days)} día{days === 1 ? "" : "s"}
           </div>
+          {c.caseType === "analgesia_parto" && (
+            <div className="sub" style={{ margin: "2px 0 0", color: "var(--accent)" }}>
+              🤰 Analgesia de parto
+              {laborReminder(c) ? ` · ${laborReminder(c)}` : ""}
+            </div>
+          )}
         </div>
         <span className={`tag ${c.status === "active" ? "active" : "closed"}`}>
           {c.status === "active" ? "En curso" : c.status === "signed" ? "Firmado" : "Cerrado"}
@@ -78,8 +103,16 @@ export function Home({ onOpen, onToast }: Props) {
 
   return (
     <div>
+      <div className="seg" style={{ marginBottom: 8 }}>
+        <button className={newType === "quirofano" ? "on" : ""} onClick={() => setNewType("quirofano")}>
+          Quirófano
+        </button>
+        <button className={newType === "analgesia_parto" ? "on" : ""} onClick={() => setNewType("analgesia_parto")}>
+          Analgesia de parto
+        </button>
+      </div>
       <button className="btn primary block lg" onClick={newCase} disabled={creating}>
-        {creating ? "Creando..." : "+ Nuevo procedimiento"}
+        {creating ? "Creando..." : newType === "analgesia_parto" ? "+ Nueva analgesia de parto" : "+ Nuevo procedimiento"}
       </button>
       <p className="sub" style={{ textAlign: "center", marginTop: 8 }}>
         Se generará automáticamente un Identificador Anestésico (IA). Puedes tener varios pacientes en curso a la vez.

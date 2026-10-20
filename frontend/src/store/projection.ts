@@ -10,6 +10,15 @@ import {
   type PositionRecord,
   type ProtectionInfo,
   type EndStateInfo,
+  type NeuraxialDose,
+  type PumpProgram,
+  type PumpReading,
+  type LaborRescue,
+  type LaborAssessment,
+  type AmbulationTest,
+  type DeliveryInfo,
+  type CatheterInfo,
+  type LaborComplications,
   type TechniqueRecord,
   type BloodProductRecord,
   type LabRecord,
@@ -39,6 +48,7 @@ export function projectCase(events: BaseEvent[]): CaseState | null {
     p.ordinal as number,
     created.occurredAt,
   );
+  state = { ...state, caseType: (p.caseType as CaseState["caseType"]) ?? "quirofano" };
 
   const voided = new Set<string>();
   for (const e of events) {
@@ -216,6 +226,28 @@ function applyEvent(state: CaseState, e: BaseEvent): CaseState {
       return { ...state, protection: p as unknown as ProtectionInfo };
     case "ANESTHESIA_END_STATE_SET":
       return { ...state, endState: p as unknown as EndStateInfo };
+    case "LABOR_TEST_DOSE":
+      return { ...state, labor: { ...state.labor, testDose: p as unknown as NeuraxialDose } };
+    case "LABOR_LOADING_DOSE":
+      return { ...state, labor: { ...state.labor, loadingDose: p as unknown as NeuraxialDose } };
+    case "PUMP_PROGRAM_SET":
+      return { ...state, labor: { ...state.labor, pumpPrograms: [...state.labor.pumpPrograms, p as unknown as PumpProgram] } };
+    case "PUMP_READING":
+      return { ...state, labor: { ...state.labor, readings: [...state.labor.readings, p as unknown as PumpReading] } };
+    case "LABOR_RESCUE_BOLUS":
+      return { ...state, labor: { ...state.labor, rescues: [...state.labor.rescues, p as unknown as LaborRescue] } };
+    case "LABOR_ASSESSMENT":
+      return { ...state, labor: { ...state.labor, assessments: [...state.labor.assessments, p as unknown as LaborAssessment] } };
+    case "AMBULATION_TEST":
+      return { ...state, labor: { ...state.labor, ambulationTests: [...state.labor.ambulationTests, p as unknown as AmbulationTest] } };
+    case "LABOR_DELIVERY":
+      return { ...state, labor: { ...state.labor, delivery: p as unknown as DeliveryInfo } };
+    case "CATHETER_REMOVED":
+      return { ...state, labor: { ...state.labor, catheter: p as unknown as CatheterInfo } };
+    case "LABOR_COMPLICATIONS_SET":
+      return { ...state, labor: { ...state.labor, complications: p as unknown as LaborComplications } };
+    case "CONVERT_TO_CESAREAN":
+      return { ...state, convertedAt: e.occurredAt, phase: "OR" };
     case "BLOOD_PRODUCT":
       return { ...state, bloodProducts: [...state.bloodProducts, p as unknown as BloodProductRecord] };
     case "BLOOD_PRODUCT_REMOVED":

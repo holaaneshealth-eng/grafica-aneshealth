@@ -16,6 +16,8 @@ export interface ApiCase {
   ownerUserId: string;
   ownerLocation: string | null;
   status: "active" | "closed" | "signed";
+  caseType?: "quirofano" | "analgesia_parto";
+  laborLoadingAt?: string | null;
   createdAt: string;
   lastActivity: string;
   closedAt: string | null;
@@ -129,7 +131,9 @@ export const api = {
     request<{ ok: true }>("/auth/change-password", "POST", { currentPassword, newPassword }),
 
   listCases: () => request<{ cases: ApiCase[] }>("/cases"),
-  createCase: () => request<{ case: ApiCase }>("/cases", "POST", {}),
+  createCase: (caseType?: "quirofano" | "analgesia_parto") => request<{ case: ApiCase }>("/cases", "POST", { caseType }),
+  getSettings: () => request<{ laborFirstTestMin: number; laborReevalMin: number }>("/settings"),
+  putSettings: (s: { laborFirstTestMin?: number; laborReevalMin?: number }) => request<{ ok: true }>("/settings", "PUT", s),
   getEvents: (id: string) => request<{ events: ApiEvent[] }>(`/cases/${id}/events`),
   appendEvent: (id: string, ev: { eventId: string; type: string; occurredAt?: string; payload: Record<string, unknown> }) =>
     request<{ event: ApiEvent; deduped: boolean }>(`/cases/${id}/events`, "POST", ev),

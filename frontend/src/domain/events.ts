@@ -34,6 +34,17 @@ export type EventType =
   | "POSITION_REMOVED"
   | "PROTECTION_SET"
   | "ANESTHESIA_END_STATE_SET"
+  | "LABOR_TEST_DOSE"
+  | "LABOR_LOADING_DOSE"
+  | "PUMP_PROGRAM_SET"
+  | "PUMP_READING"
+  | "LABOR_RESCUE_BOLUS"
+  | "LABOR_ASSESSMENT"
+  | "AMBULATION_TEST"
+  | "LABOR_DELIVERY"
+  | "CATHETER_REMOVED"
+  | "LABOR_COMPLICATIONS_SET"
+  | "CONVERT_TO_CESAREAN"
   | "INCIDENT"
   | "INCIDENT_REMOVED"
   | "BLOOD_PRODUCT"
@@ -264,8 +275,101 @@ export interface BalanceRecord {
   insensibleNote?: string; // detalle del cálculo (exposición, Tª, tiempo)
 }
 
+// ---- Analgesia neuroaxial de parto ----
+export interface NeuraxialDose {
+  at: string;
+  drug: string;
+  concentration: number; // %
+  volumeMl: number;
+  doseMg: number;
+  note?: string;
+}
+export interface PumpProgram {
+  id: string;
+  at: string;
+  laName: string;
+  laPct: number; // anestésico local %
+  opioidName?: string;
+  opioidUgMl?: number; // opioide µg/ml
+  piebVolMl: number;
+  piebIntervalMin: number;
+  pceaBolusMl: number;
+  pceaLockoutMin: number;
+  pceaHourlyMaxMl?: number;
+}
+export interface PumpReading {
+  id: string;
+  at: string;
+  totalMl: number;
+  pceaRequested?: number;
+  pceaGiven?: number;
+}
+export interface LaborRescue {
+  id: string;
+  at: string;
+  drug: string;
+  concentration: number; // %
+  volumeMl: number;
+  doseMg: number;
+  note?: string;
+}
+export interface LaborAssessment {
+  id: string;
+  at: string;
+  evn?: number;
+  sensLeft?: string; // dermatoma lado izquierdo
+  sensRight?: string; // dermatoma lado derecho
+  bromage?: string; // Bromage modificado 1-6
+  tas?: number;
+  tad?: number;
+  fc?: number;
+}
+export interface AmbulationTest {
+  id: string;
+  at: string;
+  bromage6?: boolean;
+  toeTest?: boolean;
+  romberg?: boolean;
+  authorized?: boolean;
+}
+export interface DeliveryInfo {
+  at: string;
+  type: string; // eutocico | instrumental | cesarea
+  instrumental?: string; // ventosa | forceps | espatulas
+}
+export interface CatheterInfo {
+  at: string;
+  intact?: boolean;
+}
+export interface LaborComplications {
+  duralPuncture?: boolean;
+  hypotension?: boolean;
+  insufficient?: boolean;
+  lateralized?: boolean;
+  catheterReplaced?: boolean;
+  motorBlock?: boolean;
+  pruritus?: boolean;
+  fever?: boolean;
+  other?: string;
+}
+export interface LaborData {
+  testDose: NeuraxialDose | null;
+  loadingDose: NeuraxialDose | null;
+  pumpPrograms: PumpProgram[];
+  readings: PumpReading[];
+  rescues: LaborRescue[];
+  assessments: LaborAssessment[];
+  ambulationTests: AmbulationTest[];
+  delivery: DeliveryInfo | null;
+  catheter: CatheterInfo | null;
+  complications: LaborComplications | null;
+}
+
 // Estado proyectado (vista materializada) de un caso.
 export interface CaseState {
+  caseType: "quirofano" | "analgesia_parto";
+  convertedAt?: string | null; // conversión de parto a cesárea (a partir de aquí, quirófano)
+  labor: LaborData;
   caseId: string;
   ia: string;
   year: number;
@@ -299,6 +403,20 @@ export interface CaseState {
 
 export function emptyCaseState(caseId: string, ia: string, year: number, ordinal: number, createdAt: string): CaseState {
   return {
+    caseType: "quirofano",
+    convertedAt: null,
+    labor: {
+      testDose: null,
+      loadingDose: null,
+      pumpPrograms: [],
+      readings: [],
+      rescues: [],
+      assessments: [],
+      ambulationTests: [],
+      delivery: null,
+      catheter: null,
+      complications: null,
+    },
     caseId,
     ia,
     year,

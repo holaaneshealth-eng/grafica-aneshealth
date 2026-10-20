@@ -87,6 +87,7 @@ function buildSegments(inf: InfusionRecord, endAt: number): Seg[] {
 export interface BuildOptions {
   via1?: boolean;
   photos?: ChartPhoto[];
+  fromAt?: number; // recorta el inicio (p. ej. porción de quirófano tras convertir un parto)
 }
 
 export function buildChartModel(cs: CaseState, opts: BuildOptions = {}): ChartModel {
@@ -119,7 +120,7 @@ export function buildChartModel(cs: CaseState, opts: BuildOptions = {}): ChartMo
   // Fin de anestesia para cerrar perfusiones sin parada: fin de cirugía, o salida, o último evento.
   const anesthesiaEndAt = cs.endedAt ? ms(cs.endedAt) : salidaAt ?? lastEvent;
 
-  const startAt = firstEvent - FIVE;
+  const startAt = opts.fromAt != null ? opts.fromAt : firstEvent - FIVE;
   // La gráfica TERMINA 5 min tras la salida de quirófano (o el último evento), cubriendo todo.
   const endAt = Math.max(lastEvent, salidaAt ?? anesthesiaEndAt) + FIVE;
 

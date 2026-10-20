@@ -38,6 +38,17 @@ export const APPENDABLE_EVENT_TYPES = [
   "POSITION_REMOVED",
   "PROTECTION_SET",
   "ANESTHESIA_END_STATE_SET",
+  "LABOR_TEST_DOSE",
+  "LABOR_LOADING_DOSE",
+  "PUMP_PROGRAM_SET",
+  "PUMP_READING",
+  "LABOR_RESCUE_BOLUS",
+  "LABOR_ASSESSMENT",
+  "AMBULATION_TEST",
+  "LABOR_DELIVERY",
+  "CATHETER_REMOVED",
+  "LABOR_COMPLICATIONS_SET",
+  "CONVERT_TO_CESAREAN",
   "INCIDENT",
   "INCIDENT_REMOVED",
   "BLOOD_PRODUCT",
@@ -85,6 +96,15 @@ export const resetPasswordSchema = z.object({
 
 export const setActiveSchema = z.object({
   active: z.boolean(),
+});
+
+export const createCaseSchema = z.object({
+  caseType: z.enum(["quirofano", "analgesia_parto"]).optional(),
+});
+
+export const settingsSchema = z.object({
+  laborFirstTestMin: z.number().int().min(0).max(600).optional(),
+  laborReevalMin: z.number().int().min(0).max(600).optional(),
 });
 
 export const createCustomDrugSchema = z.object({
