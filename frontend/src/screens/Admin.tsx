@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, type AdminUserRow, type AuditEntry } from "../api";
 import { hhmmss, dmy } from "../utils/time";
+import { useStore } from "../store/store";
 
 type RetentionPreview = Awaited<ReturnType<typeof api.retentionPreview>>;
 
@@ -10,7 +11,32 @@ interface Props {
 }
 
 export function Admin({ onClose, onToast }: Props) {
-  const [tab, setTab] = useState<"users" | "audit" | "retention">("users");
+  const [tab, setTab] = useState<"users" | "audit" | "retention" | "settings">("users");
+  const loadSettings = useStore((s) => s.loadSettings);
+  const [firstTest, setFirstTest] = useState("60");
+  const [reeval, setReeval] = useState("100");
+  const [savingSettings, setSavingSettings] = useState(false);
+  async function loadSettingsForm() {
+    try {
+      const s = await api.getSettings();
+      setFirstTest(String(s.laborFirstTestMin));
+      setReeval(String(s.laborReevalMin));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Error");
+    }
+  }
+  async function saveSettings() {
+    setSavingSettings(true);
+    try {
+      await api.putSettings({ laborFirstTestMin: parseInt(firstTest, 10), laborReevalMin: parseInt(reeval, 10) });
+      await loadSettings();
+      onToast("Ajustes guardados");
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Error");
+    } finally {
+      setSavingSettings(false);
+    }
+  }
   const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [retention, setRetention] = useState<RetentionPreview | null>(null);
@@ -48,6 +74,7 @@ export function Admin({ onClose, onToast }: Props) {
   useEffect(() => {
     if (tab === "audit") void loadAudit();
     if (tab === "retention") void loadRetention();
+    if (tab === "settings") void loadSettingsForm();
   }, [tab]);
 
   async function createUser() {
@@ -105,6 +132,9 @@ export function Admin({ onClose, onToast }: Props) {
           </button>
           <button className={tab === "retention" ? "on" : ""} onClick={() => setTab("retention")}>
             Autoborrado
+          </button>
+          <button className={tab === "settings" ? "on" : ""} onClick={() => setTab("settings")}>
+            Ajustes
           </button>
         </div>
         {error && <div className="alert danger">{error}</div>}
@@ -218,6 +248,26 @@ export function Admin({ onClose, onToast }: Props) {
               </button>
             </>
           )}
+        </div>
+      )}
+
+      {tab === "settings" && (
+        <div className="card">
+          <h2 style={{ fontSize: 16 }}>Recordatorios de analgesia de parto</h2>
+          <p className="sub">Minutos desde la dosis de carga para el primer test de deambulación y la reevaluación.</p>
+          <div className="row">
+            <div className="field">
+              <label>Primer test (min)</label>
+              <input inputMode="numeric" type="text" value={firstTest} onChange={(e) => setFirstTest(e.target.value)} />
+            </div>
+            <div className="field">
+              <label>Reevaluación (min)</label>
+              <input inputMode="numeric" type="text" value={reeval} onChange={(e) => setReeval(e.target.value)} />
+            </div>
+          </div>
+          <button className="btn primary block" onClick={() => void saveSettings()} disabled={savingSettings}>
+            {savingSettings ? "Guardando…" : "Guardar ajustes"}
+          </button>
         </div>
       )}
 

@@ -14,6 +14,8 @@ import { techniqueDetailLines } from "../domain/techniqueRender";
 import { WHO_PHASES } from "../domain/clinical";
 import { AnesthesiaEndModal } from "../components/AnesthesiaEndModal";
 import { positionById, consciousnessLabel, airwayLabel, oxygenLabel, destinationLabel, bromageLabel, tofLabel, PROTECTION_MEASURES } from "../domain/positions";
+import { laborTotals } from "../domain/laborTotals";
+import { deliveryLabel, instrumentalLabel, LABOR_COMPLICATIONS } from "../domain/labor";
 
 interface Props {
   cs: CaseState;
@@ -447,6 +449,64 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
             )}
           </div>
         </div>
+
+        {cs.caseType === "analgesia_parto" && (() => {
+          const L = cs.labor;
+          const tot = laborTotals(cs);
+          const lastReading = L.readings.slice().sort((a, b) => a.at.localeCompare(b.at))[L.readings.length - 1];
+          const comp = L.complications ?? {};
+          const compList = [...LABOR_COMPLICATIONS.filter((c) => comp[c.key as keyof typeof comp]).map((c) => c.label), ...(comp.other?.trim() ? [comp.other.trim()] : [])];
+          return (
+            <>
+              <h2>Analgesia neuroaxial de parto</h2>
+              <div style={{ fontSize: 12 }}>
+                {L.testDose && <div><strong>Dosis de prueba:</strong> {L.testDose.drug} {formatNum(L.testDose.concentration)} % · {formatNum(L.testDose.volumeMl)} ml ({formatNum(L.testDose.doseMg)} mg) · {hhmm(L.testDose.at)}</div>}
+                {L.loadingDose && <div><strong>Dosis de carga:</strong> {L.loadingDose.drug} {formatNum(L.loadingDose.concentration)} % · {formatNum(L.loadingDose.volumeMl)} ml ({formatNum(L.loadingDose.doseMg)} mg) · {hhmm(L.loadingDose.at)}</div>}
+              </div>
+              {L.pumpPrograms.length > 0 && (
+                <>
+                  <h2 className="sheet-h2-mini">Programación de la bomba</h2>
+                  <table className="const-table"><tbody>
+                    {L.pumpPrograms.slice().sort((a, b) => a.at.localeCompare(b.at)).map((p) => (
+                      <tr key={p.id}>
+                        <td style={{ width: 44 }}>{hhmm(p.at)}</td>
+                        <td>{p.laName} {formatNum(p.laPct)} %{p.opioidName ? ` + ${p.opioidName} ${formatNum(p.opioidUgMl ?? 0)} µg/ml` : ""} · PIEB {formatNum(p.piebVolMl)} ml/{formatNum(p.piebIntervalMin)} min · PCEA {formatNum(p.pceaBolusMl)} ml/{formatNum(p.pceaLockoutMin)} min{p.pceaHourlyMaxMl ? ` · máx ${formatNum(p.pceaHourlyMaxMl)} ml/h` : ""}</td>
+                      </tr>
+                    ))}
+                  </tbody></table>
+                </>
+              )}
+              {L.ambulationTests.length > 0 && (
+                <>
+                  <h2 className="sheet-h2-mini">Tests de deambulación</h2>
+                  <table className="const-table"><tbody>
+                    {L.ambulationTests.slice().sort((a, b) => a.at.localeCompare(b.at)).map((t) => (
+                      <tr key={t.id}>
+                        <td style={{ width: 44 }}>{hhmm(t.at)}</td>
+                        <td>
+                          Bromage 6: {t.bromage6 == null ? "-" : t.bromage6 ? "sí" : "no"} · Toe test: {t.toeTest == null ? "-" : t.toeTest ? "sí" : "no"} · Romberg: {t.romberg == null ? "-" : t.romberg ? "sí" : "no"}
+                          {" · "}<strong>Deambulación {t.authorized ? "autorizada" : "no autorizada"}</strong>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody></table>
+                </>
+              )}
+              <div className="sheet-mini" style={{ marginTop: 6 }}>
+                <strong>Totales:</strong> anestésico local ≈ {formatNum(tot.alMg)} mg · opioide ≈ {formatNum(tot.opioidUg)} µg
+                {lastReading && ` · Bomba: ${formatNum(lastReading.totalMl)} ml infundidos${lastReading.pceaGiven != null ? ` · PCEA ${formatNum(lastReading.pceaGiven)}/${formatNum(lastReading.pceaRequested ?? 0)}` : ""}`}
+              </div>
+              {(L.delivery || L.catheter || compList.length > 0) && (
+                <div className="sheet-mini" style={{ marginTop: 4 }}>
+                  {L.delivery && <div><strong>Parto:</strong> {deliveryLabel(L.delivery.type)}{L.delivery.instrumental ? ` (${instrumentalLabel(L.delivery.instrumental)})` : ""} · {hhmm(L.delivery.at)}</div>}
+                  {L.catheter && <div><strong>Retirada del catéter:</strong> {hhmm(L.catheter.at)} · íntegro: {L.catheter.intact == null ? "-" : L.catheter.intact ? "sí" : "no"}</div>}
+                  {compList.length > 0 && <div><strong>Complicaciones:</strong> {compList.join(" · ")}</div>}
+                  {cs.convertedAt && <div><strong>Convertido a cesárea</strong> a las {hhmm(cs.convertedAt)}.</div>}
+                </div>
+              )}
+            </>
+          );
+        })()}
 
         {/* Gráfica anestésica integrada (vista en pantalla; en el PDF va la versión vectorial) */}
         <div ref={chartBlockRef}>

@@ -141,6 +141,15 @@ const SCHEMA = `
     success INTEGER NOT NULL DEFAULT 1
   );
   CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at);
+
+  ALTER TABLE cases ADD COLUMN IF NOT EXISTS case_type TEXT NOT NULL DEFAULT 'quirofano';
+  ALTER TABLE cases ADD COLUMN IF NOT EXISTS labor_loading_at TEXT;
+
+  CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
 `;
 
 export async function migrate(): Promise<void> {

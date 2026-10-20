@@ -17,6 +17,7 @@ import { auditRouter } from "./routes/audit.routes";
 import { mailRouter } from "./routes/mail.routes";
 import { visionRouter } from "./routes/vision.routes";
 import { customDrugsRouter } from "./routes/customDrugs.routes";
+import { settingsRouter } from "./routes/settings.routes";
 
 // Red de seguridad: registrar (no matar el proceso) ante promesas rechazadas sin capturar.
 process.on("unhandledRejection", (reason) => {
@@ -78,6 +79,7 @@ async function main(): Promise<void> {
   app.use("/api/mail", mailRouter);
   app.use("/api/vision", visionRouter);
   app.use("/api/custom-drugs", customDrugsRouter);
+  app.use("/api/settings", settingsRouter);
   app.use("/api", notFound);
 
   // Servir el frontend compilado (SPA) desde el mismo origen.

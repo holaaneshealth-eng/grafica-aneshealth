@@ -7,7 +7,7 @@ import { appendEvent, createCase, voidEvent, mapCase, mapEvent } from "../eventS
 import { retentionPreview } from "../retention";
 import { authGuard, csrfGuard, requirePasswordChanged, requireAdmin } from "../middleware";
 import { canCreateCase } from "../rbac";
-import { appendEventSchema, voidEventSchema } from "../validation";
+import { appendEventSchema, voidEventSchema, createCaseSchema } from "../validation";
 
 export const casesRouter = Router();
 
@@ -25,7 +25,9 @@ casesRouter.post("/", csrfGuard, async (req, res) => {
     res.status(403).json({ error: "Sin permiso para crear casos" });
     return;
   }
-  const c = await createCase(req.user!);
+  const parsed = createCaseSchema.safeParse(req.body ?? {});
+  const caseType = parsed.success ? parsed.data.caseType ?? "quirofano" : "quirofano";
+  const c = await createCase(req.user!, caseType);
   audit({ userId: req.user!.id, username: req.user!.username, action: "CASE_CREATED", targetType: "case", targetId: c.ia, ip: req.ip });
   res.status(201).json({ case: mapCase(c) });
 });

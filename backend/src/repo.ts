@@ -37,6 +37,8 @@ export interface CaseFull {
   owner_user_id: string;
   owner_location: string | null;
   status: "active" | "closed" | "signed";
+  case_type: string | null;
+  labor_loading_at: string | null;
   created_at: string;
   last_activity: string;
   closed_at: string | null;
@@ -225,6 +227,19 @@ export interface NewCustomDrug {
 }
 
 // Catálogo de fármacos "Otro fármaco" añadidos por los usuarios (compartido entre todos).
+export const appSettings = {
+  async all(): Promise<{ key: string; value: string }[]> {
+    return (await query<{ key: string; value: string }>(`SELECT key, value FROM app_settings`)).rows;
+  },
+  async set(key: string, value: string): Promise<void> {
+    await query(
+      `INSERT INTO app_settings (key, value, updated_at) VALUES ($1,$2,$3)
+       ON CONFLICT (key) DO UPDATE SET value=$2, updated_at=$3`,
+      [key, value, new Date().toISOString()],
+    );
+  },
+};
+
 export const customDrugs = {
   async all(): Promise<CustomDrugRow[]> {
     return (await query<CustomDrugRow>(`SELECT * FROM custom_drugs ORDER BY name`)).rows;

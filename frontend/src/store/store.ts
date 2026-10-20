@@ -93,6 +93,7 @@ interface AppState {
   online: boolean;
   pending: PendingEvent[];
   customDrugs: DrugDef[]; // catálogo "Otro fármaco" (servidor), reflejado para repintar la UI
+  settings: { laborFirstTestMin: number; laborReevalMin: number };
 
   // sesion
   bootstrap: () => Promise<void>;
@@ -102,7 +103,8 @@ interface AppState {
   // datos
   refreshCases: () => Promise<void>;
   openCase: (id: string) => Promise<void>;
-  createCase: () => Promise<string | null>;
+  createCase: (caseType?: "quirofano" | "analgesia_parto") => Promise<string | null>;
+  loadSettings: () => Promise<void>;
   setActiveCase: (id: string | null) => void;
   append: (caseId: string, type: EventType, payload: Record<string, unknown>, occurredAt?: string) => void;
   reopenCase: (caseId: string) => void;
@@ -130,6 +132,7 @@ export const useStore = create<AppState>((set, get) => ({
   online: typeof navigator !== "undefined" ? navigator.onLine : true,
   pending: loadQueue(),
   customDrugs: [],
+  settings: { laborFirstTestMin: 60, laborReevalMin: 100 },
 
   bootstrap: async () => {
     try {
@@ -138,9 +141,19 @@ export const useStore = create<AppState>((set, get) => ({
       set({ user, booting: false });
       await get().refreshCases();
       await get().loadCustomDrugs();
+      await get().loadSettings();
       await get().flush();
     } catch {
       set({ user: null, booting: false });
+    }
+  },
+
+  loadSettings: async () => {
+    try {
+      const s = await api.getSettings();
+      set({ settings: s });
+    } catch {
+      /* se usan los valores por defecto */
     }
   },
 
@@ -206,9 +219,9 @@ export const useStore = create<AppState>((set, get) => ({
     set({ activeCaseId: id });
   },
 
-  createCase: async () => {
+  createCase: async (caseType) => {
     try {
-      const { case: c } = await api.createCase();
+      const { case: c } = await api.createCase(caseType);
       const { events } = await api.getEvents(c.caseId);
       set((s) => ({
         cases: [c, ...s.cases.filter((x) => x.caseId !== c.caseId)],
