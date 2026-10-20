@@ -103,6 +103,7 @@ export interface BolusRecord {
   route?: string; // vía de administración (IV, intradural, epidural, perineural...)
   concentration?: number; // % (anestésicos locales neuroaxiales)
   volumeMl?: number; // ml administrados (anestésicos locales neuroaxiales)
+  adrenaline?: boolean; // anestésico local administrado con vasoconstrictor (dosis máxima mayor)
 }
 
 export interface InfusionRecord {
@@ -125,6 +126,7 @@ export interface InfusionRecord {
   gasPercent?: number; // % en aire espirado
   fluid?: boolean; // suero IV (500 ml; ritmo medio al finalizar)
   volumeMl?: number; // volumen cargado (sueros)
+  adrenaline?: boolean; // anestésico local (p. ej. lidocaína IV) con vasoconstrictor
   tci?: "plasma" | "efecto"; // perfusión en modo TCI (objetivo plasmático/efecto); el objetivo se guarda en rateMlH
   tciUnit?: string; // unidad del objetivo TCI (p. ej. µg/ml o ng/ml)
   tciModel?: string; // modelo farmacocinético (Marsh/Schnider/Eleveld/Minto/Dyck/Hannivoort)
