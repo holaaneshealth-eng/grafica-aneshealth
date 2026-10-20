@@ -51,17 +51,23 @@ function buildSegments(inf: InfusionRecord, endAt: number): Seg[] {
     if (ch.stop) continue;
     const from = ms(ch.at);
     const next = changes[i + 1] ? ms(changes[i + 1].at) : inf.stoppedAt ? ms(inf.stoppedAt) : endAt;
+    // La PRIMERA etiqueta lleva la unidad (y el modelo en TCI): p. ej. "Ce 5 µg/ml (Schnider)".
+    // Las siguientes, solo el valor: "Ce 3,5" (TCI) o "8" (ritmo/dosis), para no repetir.
     let label: string;
     if (inf.tci) {
-      const unit = prettyUnit(inf.tciUnit ?? "µg/ml");
-      label = `${modeLabel} ${formatNum(ch.rateMlH)} ${unit}`;
-      if (first && inf.tciModel) label += ` (${inf.tciModel})`;
+      if (first) {
+        const unit = prettyUnit(inf.tciUnit ?? "µg/ml");
+        label = `${modeLabel} ${formatNum(ch.rateMlH)} ${unit}`;
+        if (inf.tciModel) label += ` (${inf.tciModel})`;
+      } else {
+        label = `${modeLabel} ${formatNum(ch.rateMlH)}`;
+      }
     } else if (inf.gas) {
-      label = `${formatNum(ch.gasPercent ?? 0)} %`;
+      label = first ? `${formatNum(ch.gasPercent ?? 0)} %` : `${formatNum(ch.gasPercent ?? 0)}`;
     } else if (ch.doseUnit && !/ml\/h/i.test(ch.doseUnit) && ch.weightBasedDose) {
-      label = `${formatNum(ch.weightBasedDose)} ${prettyUnit(ch.doseUnit)}`;
+      label = first ? `${formatNum(ch.weightBasedDose)} ${prettyUnit(ch.doseUnit)}` : `${formatNum(ch.weightBasedDose)}`;
     } else {
-      label = `${formatNum(ch.rateMlH)} ml/h`;
+      label = first ? `${formatNum(ch.rateMlH)} ml/h` : `${formatNum(ch.rateMlH)}`;
     }
     // Perfusión sin parada registrada: la barra termina en el fin de anestesia / salida.
     segs.push({ from, to: inf.active && i === changes.length - 1 ? endAt : next, label });
@@ -224,9 +230,11 @@ export function buildChartModel(cs: CaseState, opts: BuildOptions = {}): ChartMo
       if (inf.totalInfused != null) extraTotals.push(`${formatNum(inf.totalInfused)} ${prettyUnit(inf.totalInfusedUnit ?? "ml")} (bomba)`);
     }
 
-    const roundMass = (v: number, u: string) => (u === "mg" ? Math.round(v * 10) / 10 : Math.round(v));
+    // El total conserva la MISMA precisión decimal que las dosis registradas (no se
+    // redondea: 1,25 mg se muestra como 1,25 mg). Solo se limpia el ruido de coma flotante.
+    const tidy = (v: number) => Math.round(v * 1_000_000) / 1_000_000;
     const parts: string[] = [];
-    massByUnit.forEach((v, u) => parts.push(`${formatNum(roundMass(v, u))} ${u}`));
+    massByUnit.forEach((v, u) => parts.push(`${formatNum(tidy(v))} ${u}`));
     if (infVolNoConcMl > 0.05) parts.push(`${formatNum(Math.round(infVolNoConcMl))} ml de solución`);
     parts.push(...extraTotals);
     const total = parts.length ? { text: parts.join(" · ") } : null;

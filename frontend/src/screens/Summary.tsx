@@ -7,6 +7,7 @@ import { AnesthesiaChart, CHARTED } from "../components/AnesthesiaChart";
 import { generateGraphicPages, type ChartPhoto } from "../pdf";
 import { api, ApiError } from "../api";
 import { dmy, hhmm } from "../utils/time";
+import { milestoneCode } from "../pdf/config/milestones";
 import { STANDARD_PARAMS } from "../domain/monitoring";
 import { formatNum } from "../domain/calculations";
 import { techniqueDetailLines } from "../domain/techniqueRender";
@@ -242,6 +243,12 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
     window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   }
 
+  // Cabecera de la hoja: "Inicio" = inicio de anestesia; "Fin" = fin de anestesia.
+  // (Antes se usaba la creación/cierre del caso, que no coincidía con la anestesia.)
+  const milestoneAt = (code: string) => cs.milestones.find((m) => milestoneCode(m.label) === code)?.at ?? null;
+  const inicioAt = milestoneAt("IAN") ?? milestoneAt("ENT"); // anestesia; en su defecto, entrada a quirófano
+  const finAt = milestoneAt("FAN") ?? milestoneAt("SAL") ?? cs.endedAt ?? null; // anestesia; en su defecto, salida/cierre
+
   const antibioticLine = cs.preop.antibiotic
     ? `${cs.preop.antibiotic}${cs.preop.antibioticTime ? ` (${hhmm(cs.preop.antibioticTime)})` : ""}`
     : "-";
@@ -328,10 +335,10 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
           <span className="sheet-title2">Hoja Anestésica</span>
           <span className="sheet-ia2">{cs.ia}</span>
           <span className="sheet-hdr">
-            <b>Inicio</b> {hhmm(cs.createdAt)}
+            <b>Inicio</b> {inicioAt ? hhmm(inicioAt) : "-"}
           </span>
           <span className="sheet-hdr">
-            <b>Fin</b> {cs.endedAt ? hhmm(cs.endedAt) : "-"}
+            <b>Fin</b> {finAt ? hhmm(finAt) : "-"}
           </span>
           <span className="sheet-hdr">
             <b>Alergias:</b> {cs.preop.allergies || "-"}

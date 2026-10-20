@@ -3,6 +3,7 @@ import { Modal } from "./Modal";
 import { TimeField } from "./TimeField";
 import { TemplatePanel } from "./TemplatePanel";
 import { DRUG_UNITS, drugByName, drugsForMode, dilutionsFor, tciInfo } from "../domain/drugs";
+import { addCustomDrug } from "../domain/customDrugs";
 import { computeInfusion, rateFromDose, formatNum, type DoseRateUnit, type MassUnit } from "../domain/calculations";
 import { useStore } from "../store/store";
 import type { CaseState, InfusionRecord } from "../domain/events";
@@ -21,7 +22,8 @@ const DOSE_UNITS: DoseRateUnit[] = ["mcg/kg/min", "mcg/kg/h", "mg/kg/h", "mg/kg/
 const RATE_UNITS = ["ml/h", "mcg/kg/min", "mcg/kg/h", "mg/kg/h", "mg/kg/min", "TCI plasmática", "TCI efecto"];
 const FLUID_VOLUME = 500;
 // Vías de administración. Cada vía va en su propia fila en la gráfica.
-const ROUTES = ["IV", "Intradural", "Epidural", "Perineural", "Interfascial", "IM", "Subcutánea", "Inhalatoria", "Tópica", "Intranasal", "Oral"];
+const OTHER_ROUTE = "Otra…"; // permite escribir la vía en texto libre
+const ROUTES = ["IV", "Intradural", "Epidural", "Perineural", "Interfascial", "IM", "Subcutánea", "Inhalatoria", "Tópica", "Intranasal", "Oral", OTHER_ROUTE];
 
 export function DrugModal({ cs, onClose, onDone }: Props) {
   const append = useStore((s) => s.append);
@@ -33,6 +35,7 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
   const [dose, setDose] = useState("");
   const [unit, setUnit] = useState("mg");
   const [route, setRoute] = useState("IV"); // vía de administración (bolo/perfusión)
+  const [routeOther, setRouteOther] = useState(""); // vía en texto libre cuando route = "Otra…"
   const [conc, setConc] = useState(""); // neuroaxial %
   const [volml, setVolml] = useState(""); // neuroaxial ml
 
@@ -52,6 +55,18 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
   // Gas / cambio de ritmo
   const [gasPercent, setGasPercent] = useState("");
   const [newRate, setNewRate] = useState("");
+
+  // Vía efectiva (texto libre si se eligió "Otra…").
+  const effRoute = route === OTHER_ROUTE ? routeOther.trim() || "Otra" : route;
+  // "Otro fármaco": el nombre escrito no está en el catálogo (ni favoritos ni personalizados).
+  const isCustomDrug = !!drug.trim() && !drugByName(drug);
+  // Al guardar un fármaco que no está en el catálogo, se añade a la lista para los
+  // siguientes casos (nombre + unidad + modo de uso).
+  function registerIfCustom(opts: { unit?: string; infusionDoseUnit?: string }) {
+    const name = drug.trim();
+    if (!name || drugByName(name)) return;
+    addCustomDrug({ name, group: "Otro", defaultUnit: opts.unit ?? "mg", infusionDoseUnit: opts.infusionDoseUnit });
+  }
 
   const def = drugByName(drug);
   const isGas = !!def?.gas;
@@ -189,14 +204,15 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
     const at = isoFromLocalInput(time);
     if (isConcVol) {
       if (!drug || !concVolDose) return;
-      append(cs.caseId, "DRUG_BOLUS", { id: rid(), drug, dose: concVolDose, unit: "mg", at, route, concentration: parseFloat(conc.replace(",", ".")), volumeMl: parseFloat(volml.replace(",", ".")) }, at);
+      append(cs.caseId, "DRUG_BOLUS", { id: rid(), drug, dose: concVolDose, unit: "mg", at, route: effRoute, concentration: parseFloat(conc.replace(",", ".")), volumeMl: parseFloat(volml.replace(",", ".")) }, at);
       onDone(`${drug} ${formatNum(concVolDose)} mg`);
       onClose();
       return;
     }
     const d = parseFloat(dose.replace(",", "."));
     if (!drug || !d) return;
-    append(cs.caseId, "DRUG_BOLUS", { id: rid(), drug, dose: d, unit, at, route }, at);
+    registerIfCustom({ unit });
+    append(cs.caseId, "DRUG_BOLUS", { id: rid(), drug, dose: d, unit, at, route: effRoute }, at);
     onDone(`${drug} ${formatNum(d)} ${unit} registrado`);
     onClose();
   }
@@ -226,12 +242,13 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
     if (isTci) {
       const target = parseFloat(rate.replace(",", "."));
       if (!drug || !isFinite(target) || target <= 0) return;
+      registerIfCustom({ unit: amountUnit, infusionDoseUnit: doseUnit });
       const modeLabel = tciMode === "plasma" ? "Cp" : "Ce";
       append(
         cs.caseId,
         "INFUSION_STARTED",
         {
-          id: rid(), drug, route, tci: tciMode, tciUnit, tciModel: tciModel || undefined,
+          id: rid(), drug, route: effRoute, tci: tciMode, tciUnit, tciModel: tciModel || undefined,
           amount: 0, amountUnit, diluentVolumeMl: 0, concentration: 0, concentrationUnit: tciUnit,
           rateMlH: target, weightBasedDose: target, doseUnit: `${tciUnit} (${modeLabel})`,
           summary: `${modeLabel} ${formatNum(target)} ${tciUnit}${tciModel ? ` (${tciModel})` : ""}`, startedAt: at, active: true,
@@ -244,9 +261,10 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
     }
     if (!drug || !calc) return;
     if (w && w !== cs.preop.weightKg) append(cs.caseId, "WEIGHT_UPDATED", { weightKg: w });
+    registerIfCustom({ unit: amountUnit, infusionDoseUnit: calc.doseUnit });
     let summary = calc.summary;
     if (isPropofol && propofolMgKgH && !calc.doseUnit.startsWith("mg/kg/h")) summary = `${calc.summary} · ${formatNum(propofolMgKgH.weightBasedDose)} mg/kg/h`;
-    append(cs.caseId, "INFUSION_STARTED", { id: rid(), drug, route, amount: parseFloat(amount.replace(",", ".")), amountUnit, diluentVolumeMl: parseFloat(diluent.replace(",", ".")), concentration: calc.concentration, concentrationUnit: calc.concentrationUnit, rateMlH: calc.effRateMlH, weightBasedDose: calc.weightBasedDose, doseUnit: calc.doseUnit, summary, startedAt: at, active: true }, at);
+    append(cs.caseId, "INFUSION_STARTED", { id: rid(), drug, route: effRoute, amount: parseFloat(amount.replace(",", ".")), amountUnit, diluentVolumeMl: parseFloat(diluent.replace(",", ".")), concentration: calc.concentration, concentrationUnit: calc.concentrationUnit, rateMlH: calc.effRateMlH, weightBasedDose: calc.weightBasedDose, doseUnit: calc.doseUnit, summary, startedAt: at, active: true }, at);
     onDone(`Perfusión ${drug} iniciada`);
     onClose();
   }
@@ -376,6 +394,11 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
               })}
             </div>
             <input type="text" placeholder="Otro fármaco (escribe el nombre)" value={drug} onChange={(e) => setDrug(e.target.value)} />
+            {isCustomDrug && (
+              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                Fármaco nuevo: indica dosis, unidad y vía. Al guardarlo quedará añadido a la lista para los siguientes casos.
+              </div>
+            )}
           </div>
 
           {allergyHit && (
@@ -409,6 +432,15 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
                   <option key={r}>{r}</option>
                 ))}
               </select>
+              {route === OTHER_ROUTE && (
+                <input
+                  type="text"
+                  style={{ marginTop: 6 }}
+                  placeholder="Escribe la vía"
+                  value={routeOther}
+                  onChange={(e) => setRouteOther(e.target.value)}
+                />
+              )}
             </div>
           )}
 

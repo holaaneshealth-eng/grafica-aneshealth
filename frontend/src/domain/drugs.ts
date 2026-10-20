@@ -1,4 +1,6 @@
 // Catálogo de fármacos frecuentes (favoritos) para registro rápido.
+import { loadCustomDrugs } from "./customDrugs";
+
 export interface DrugDef {
   name: string;
   group: string;
@@ -26,6 +28,7 @@ export const DRUGS: DrugDef[] = [
   { name: "Remifentanilo", group: "Opioide", defaultUnit: "mcg", commonBolus: [50, 100], infusionDoseUnit: "mcg/kg/min" },
   { name: "Sufentanilo", group: "Opioide", defaultUnit: "mcg", commonBolus: [10, 20, 30], infusionDoseUnit: "mcg/kg/h" },
   { name: "Morfina", group: "Opioide", defaultUnit: "mg", commonBolus: [2, 3, 5, 10] },
+  { name: "Tramadol", group: "Opioide", defaultUnit: "mg", commonBolus: [50, 100] },
 
   // Relajantes / reversores
   { name: "Rocuronio", group: "Relajante", defaultUnit: "mg", commonBolus: [30, 40, 50, 60], infusionDoseUnit: "mcg/kg/min" },
@@ -149,12 +152,17 @@ export function dilutionsFor(name: string): Dilution[] {
   return STANDARD_DILUTIONS[name] ?? [];
 }
 
+/** Catálogo completo = favoritos + fármacos "Otro fármaco" añadidos por el usuario. */
+export function allDrugs(): DrugDef[] {
+  return [...DRUGS, ...loadCustomDrugs()];
+}
+
 export function drugByName(name: string): DrugDef | undefined {
-  return DRUGS.find((d) => d.name.toLowerCase() === name.toLowerCase());
+  return allDrugs().find((d) => d.name.toLowerCase() === name.toLowerCase());
 }
 
 /** Lista de fármacos para el modo indicado, ordenada alfabéticamente. */
 export function drugsForMode(mode: "bolus" | "infusion"): DrugDef[] {
-  const list = DRUGS.filter((d) => (mode === "bolus" ? !d.gas && !d.fluid : d.infusionDoseUnit || d.gas || d.fluid));
+  const list = allDrugs().filter((d) => (mode === "bolus" ? !d.gas && !d.fluid : d.infusionDoseUnit || d.gas || d.fluid));
   return list.slice().sort((a, b) => a.name.localeCompare(b.name, "es"));
 }
