@@ -1,7 +1,7 @@
 import { Router } from "express";
-import { audit } from "../db";
+import { audit, dbFeatures } from "../db";
 import { customDrugs, type CustomDrugRow } from "../repo";
-import { authGuard, csrfGuard, requirePasswordChanged } from "../middleware";
+import { authGuard, csrfGuard, requireAdmin, requirePasswordChanged } from "../middleware";
 import { newId } from "../domain";
 import { createCustomDrugSchema } from "../validation";
 
@@ -42,6 +42,11 @@ function toDef(r: CustomDrugRow): DrugDefDto {
 
 customDrugsRouter.get("/", async (_req, res, next) => {
   try {
+    // Si la tabla no se pudo crear, la app funciona con el catálogo fijo (lista vacía aquí).
+    if (!dbFeatures.customDrugs) {
+      res.json({ drugs: [] });
+      return;
+    }
     res.json({ drugs: (await customDrugs.all()).map(toDef) });
   } catch (err) {
     next(err);
@@ -50,6 +55,10 @@ customDrugsRouter.get("/", async (_req, res, next) => {
 
 customDrugsRouter.post("/", async (req, res, next) => {
   try {
+    if (!dbFeatures.customDrugs) {
+      res.status(503).json({ error: "El catálogo de fármacos a mano no está disponible" });
+      return;
+    }
     const parsed = createCustomDrugSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: "Datos inválidos", detail: parsed.error.issues[0]?.message });
@@ -87,8 +96,14 @@ customDrugsRouter.post("/", async (req, res, next) => {
   }
 });
 
-customDrugsRouter.delete("/:id", async (req, res, next) => {
+// Solo los administradores pueden BORRAR fármacos de la lista compartida; el resto de
+// usuarios solo pueden añadir (POST).
+customDrugsRouter.delete("/:id", requireAdmin, async (req, res, next) => {
   try {
+    if (!dbFeatures.customDrugs) {
+      res.status(503).json({ error: "El catálogo de fármacos a mano no está disponible" });
+      return;
+    }
     await customDrugs.remove(req.params.id);
     audit({ userId: req.user!.id, username: req.user!.username, action: "CUSTOM_DRUG_REMOVED", targetType: "drug", targetId: req.params.id, ip: req.ip });
     res.json({ ok: true });

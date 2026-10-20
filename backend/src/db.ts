@@ -141,19 +141,6 @@ const SCHEMA = `
     success INTEGER NOT NULL DEFAULT 1
   );
   CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at);
-
-  CREATE TABLE IF NOT EXISTS custom_drugs (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    group_name TEXT NOT NULL DEFAULT 'Otro',
-    default_unit TEXT NOT NULL DEFAULT 'mg',
-    common_bolus TEXT,
-    infusion_dose_unit TEXT,
-    conc_vol INTEGER NOT NULL DEFAULT 0,
-    created_by TEXT,
-    created_at TEXT NOT NULL
-  );
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_custom_drugs_name ON custom_drugs (LOWER(name));
 `;
 
 export async function migrate(): Promise<void> {
@@ -161,8 +148,9 @@ export async function migrate(): Promise<void> {
 }
 
 // Estado de funciones opcionales que dependen de una migración que puede fallar sin
-// tumbar el servidor. `photos` controla la Vía 1 (fotos del monitor).
-export const dbFeatures = { photos: false };
+// tumbar el servidor. `photos` controla la Vía 1 (fotos del monitor); `customDrugs`,
+// el catálogo compartido de fármacos añadidos a mano.
+export const dbFeatures = { photos: false, customDrugs: false };
 
 // Esquema de la tabla de fotos del monitor (Vía 1). Idempotente (IF NOT EXISTS).
 // Se migra APARTE y de forma NO fatal: si falla, el servidor arranca igualmente y la
@@ -190,6 +178,37 @@ export async function migrateCasePhotos(): Promise<void> {
     dbFeatures.photos = false;
     // eslint-disable-next-line no-console
     console.error("[db] no se pudo crear case_photos; la Vía 1 (fotos del monitor) queda DESACTIVADA:", (err as Error).message);
+  }
+}
+
+// Esquema del catálogo compartido de fármacos añadidos a mano. Se migra APARTE y de
+// forma NO fatal (igual que case_photos): si falla, el servidor arranca igualmente y la
+// app sigue funcionando con el catálogo fijo (dbFeatures.customDrugs = false).
+const CUSTOM_DRUGS_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS custom_drugs (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    group_name TEXT NOT NULL DEFAULT 'Otro',
+    default_unit TEXT NOT NULL DEFAULT 'mg',
+    common_bolus TEXT,
+    infusion_dose_unit TEXT,
+    conc_vol INTEGER NOT NULL DEFAULT 0,
+    created_by TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_custom_drugs_name ON custom_drugs (LOWER(name));
+`;
+
+export async function migrateCustomDrugs(): Promise<void> {
+  try {
+    await pool.query(CUSTOM_DRUGS_SCHEMA);
+    dbFeatures.customDrugs = true;
+    // eslint-disable-next-line no-console
+    console.log("[db] tabla custom_drugs lista (catálogo de fármacos a mano activado).");
+  } catch (err) {
+    dbFeatures.customDrugs = false;
+    // eslint-disable-next-line no-console
+    console.error("[db] no se pudo crear custom_drugs; el catálogo de fármacos a mano queda DESACTIVADO:", (err as Error).message);
   }
 }
 
