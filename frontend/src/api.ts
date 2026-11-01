@@ -122,6 +122,23 @@ export interface ApiCustomDrug {
   concVol?: boolean;
 }
 
+// Firma personal: anestesiólogos.
+export interface ApiAnesthesiologistAdmin {
+  id: string;
+  fullName: string;
+  colegiado: string;
+  title: string;
+  active: number;
+  mustChangePin: number;
+  locked: boolean;
+}
+export interface ApiAnesthesiologist {
+  id: string;
+  full_name: string;
+  colegiado: string;
+  title: string;
+}
+
 export const api = {
   login: (username: string, password: string) =>
     request<{ user: ApiUser; csrfToken: string }>("/auth/login", "POST", { username, password }),
@@ -167,4 +184,18 @@ export const api = {
     request<{ ok: true }>(`/users/${id}/reset-password`, "POST", { password }),
   setUserActive: (id: string, active: boolean) => request<{ ok: true }>(`/users/${id}/active`, "POST", { active }),
   audit: (limit = 200) => request<{ entries: AuditEntry[] }>(`/audit?limit=${limit}`),
+
+  // Firma personal: anestesiólogos.
+  listAnesthesiologists: () => request<{ anesthesiologists: ApiAnesthesiologistAdmin[] }>("/anesthesiologists"),
+  listSelectableAnesthesiologists: () => request<{ anesthesiologists: ApiAnesthesiologist[] }>("/anesthesiologists/selectable"),
+  createAnesthesiologist: (a: { fullName: string; colegiado: string; title?: string }) =>
+    request<{ ok: true; id: string; pin: string }>("/anesthesiologists", "POST", a),
+  updateAnesthesiologist: (id: string, a: { fullName?: string; colegiado?: string; title?: string }) =>
+    request<{ ok: true }>(`/anesthesiologists/${id}`, "PATCH", a),
+  setAnesthesiologistActive: (id: string, active: boolean) => request<{ ok: true }>(`/anesthesiologists/${id}/active`, "POST", { active }),
+  resetAnesthesiologistPin: (id: string) => request<{ ok: true; pin: string }>(`/anesthesiologists/${id}/reset-pin`, "POST", {}),
+  changeAnesthesiologistPin: (id: string, currentPin: string, newPin: string) =>
+    request<{ ok: true }>(`/anesthesiologists/${id}/change-pin`, "POST", { currentPin, newPin }),
+  signCase: (id: string, anesthesiologistId: string, pin: string) =>
+    request<{ ok: true; signedBy: string; colegiado: string; title: string }>(`/cases/${id}/sign`, "POST", { anesthesiologistId, pin }),
 };

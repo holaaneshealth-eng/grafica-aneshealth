@@ -123,6 +123,15 @@ export function renderDataPage(doc: jsPDF, cs: CaseState): void {
   L.line(facts.join("  ·  "), { size: 9.5 });
   if (bio.length) L.line(bio.join("  ·  "), { size: 9.5, color: GREY });
 
+  // ---- Anestesiólogo responsable y relevos ----
+  if (cs.responsible || cs.relays.length > 0) {
+    const ref = (r: { title?: string; name: string; colegiado?: string }) =>
+      `${r.title ? r.title + " " : ""}${r.name}${r.colegiado ? ` · Nº colegiado ${r.colegiado}` : ""}`;
+    L.heading("Anestesiólogo responsable");
+    if (cs.responsible) L.kv("Responsable", `${ref(cs.responsible)} (desde ${hhmm(cs.responsible.at)})`);
+    cs.relays.forEach((r) => L.kv("Relevo", `${ref(r)} · ${hhmm(r.at)}`));
+  }
+
   // ---- Valoración preanestésica ----
   if (cs.preop.history || cs.preop.medication) {
     L.heading("Valoración preanestésica");
@@ -247,7 +256,11 @@ export function renderDataPage(doc: jsPDF, cs: CaseState): void {
   d.setFontSize(8);
   d.setTextColor(...GREY);
   d.text("Documento pseudonimizado (RGPD). Identificado únicamente por IA.", M, L.y + 2);
-  d.text(cs.signedAt ? `Firmado: ${cs.signedBy} · ${dmy(cs.signedAt)} ${hhmm(cs.signedAt)}` : "Sin firmar", PW - M, L.y + 2, { align: "right" });
+  L.y += 4;
+  const firma = cs.signedAt
+    ? `Firmado: ${cs.signedTitle ? cs.signedTitle + " " : ""}${cs.signedBy}${cs.signedColegiado ? ` · Nº colegiado ${cs.signedColegiado}` : ""} · ${dmy(cs.signedAt)} ${hhmm(cs.signedAt)}`
+    : "Sin firmar";
+  d.text(firma, M, L.y + 2);
 }
 
 function renderLabor(L: Layout, cs: CaseState): void {

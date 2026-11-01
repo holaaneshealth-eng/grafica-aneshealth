@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, ApiError, type AdminUserRow, type AuditEntry } from "../api";
+import { api, ApiError, type AdminUserRow, type AuditEntry, type ApiAnesthesiologistAdmin } from "../api";
 import { hhmmss, dmy } from "../utils/time";
 import { useStore } from "../store/store";
 
@@ -11,7 +11,7 @@ interface Props {
 }
 
 export function Admin({ onClose, onToast }: Props) {
-  const [tab, setTab] = useState<"users" | "audit" | "retention" | "settings">("users");
+  const [tab, setTab] = useState<"users" | "anesth" | "audit" | "retention" | "settings">("users");
   const loadSettings = useStore((s) => s.loadSettings);
   const [firstTest, setFirstTest] = useState("60");
   const [reeval, setReeval] = useState("100");
@@ -45,6 +45,63 @@ export function Admin({ onClose, onToast }: Props) {
   // Alta de usuario
   const [nu, setNu] = useState({ username: "", displayName: "", role: "clinical", location: "", password: "" });
 
+  // Anestesiólogos (firma personal)
+  const [anesth, setAnesth] = useState<ApiAnesthesiologistAdmin[]>([]);
+  const [na, setNa] = useState({ fullName: "", colegiado: "", title: "Dr./Dra." });
+  const [pinNotice, setPinNotice] = useState<string | null>(null);
+
+  async function loadAnesth() {
+    try {
+      setAnesth((await api.listAnesthesiologists()).anesthesiologists);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Error");
+    }
+  }
+  const loadAnesthesiologists = useStore((s) => s.loadAnesthesiologists);
+  async function createAnesth() {
+    try {
+      const r = await api.createAnesthesiologist({ fullName: na.fullName.trim(), colegiado: na.colegiado.trim(), title: na.title });
+      setPinNotice(`PIN provisional de ${na.fullName.trim()}: ${r.pin}  —  comunícaselo; lo cambiará en su primera firma.`);
+      onToast("Anestesiólogo creado");
+      setNa({ fullName: "", colegiado: "", title: "Dr./Dra." });
+      await loadAnesth();
+      await loadAnesthesiologists();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Error");
+    }
+  }
+  async function resetAnesthPin(a: ApiAnesthesiologistAdmin) {
+    try {
+      const r = await api.resetAnesthesiologistPin(a.id);
+      setPinNotice(`Nuevo PIN provisional de ${a.fullName}: ${r.pin}  —  comunícaselo; lo cambiará en su primera firma.`);
+      await loadAnesth();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Error");
+    }
+  }
+  async function toggleAnesthActive(a: ApiAnesthesiologistAdmin) {
+    try {
+      await api.setAnesthesiologistActive(a.id, a.active !== 1);
+      await loadAnesth();
+      await loadAnesthesiologists();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Error");
+    }
+  }
+  async function editAnesth(a: ApiAnesthesiologistAdmin) {
+    const fullName = window.prompt("Nombre completo:", a.fullName) ?? a.fullName;
+    const colegiado = window.prompt("Nº de colegiado:", a.colegiado) ?? a.colegiado;
+    const title = window.prompt("Tratamiento (Dr. / Dra. / Dr./Dra.):", a.title) ?? a.title;
+    try {
+      await api.updateAnesthesiologist(a.id, { fullName: fullName.trim(), colegiado: colegiado.trim(), title: title.trim() });
+      onToast("Anestesiólogo actualizado");
+      await loadAnesth();
+      await loadAnesthesiologists();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Error");
+    }
+  }
+
   async function loadUsers() {
     try {
       setUsers((await api.listUsers()).users);
@@ -72,6 +129,7 @@ export function Admin({ onClose, onToast }: Props) {
   }
 
   useEffect(() => {
+    if (tab === "anesth") void loadAnesth();
     if (tab === "audit") void loadAudit();
     if (tab === "retention") void loadRetention();
     if (tab === "settings") void loadSettingsForm();
@@ -126,6 +184,9 @@ export function Admin({ onClose, onToast }: Props) {
         <div className="seg" style={{ marginTop: 12 }}>
           <button className={tab === "users" ? "on" : ""} onClick={() => setTab("users")}>
             Usuarios
+          </button>
+          <button className={tab === "anesth" ? "on" : ""} onClick={() => setTab("anesth")}>
+            Anestesiólogos
           </button>
           <button className={tab === "audit" ? "on" : ""} onClick={() => setTab("audit")}>
             Auditoría
@@ -194,6 +255,65 @@ export function Admin({ onClose, onToast }: Props) {
                   </button>
                   <button className={`btn ${u.active === 1 ? "danger" : ""}`} onClick={() => toggleActive(u)}>
                     {u.active === 1 ? "Desactivar" : "Activar"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      {tab === "anesth" && (
+        <>
+          {pinNotice && (
+            <div className="card" style={{ borderColor: "var(--accent)" }}>
+              <div className="alert">{pinNotice}</div>
+              <button className="btn ghost" onClick={() => setPinNotice(null)}>Ocultar</button>
+            </div>
+          )}
+          <div className="card">
+            <h2 style={{ fontSize: 16 }}>Nuevo anestesiólogo</h2>
+            <p className="sub">Al crearlo se genera un PIN provisional (que debe cambiar en su primera firma). Lista independiente de las cuentas de acceso.</p>
+            <div className="row">
+              <div className="field">
+                <label>Nombre completo</label>
+                <input type="text" value={na.fullName} onChange={(e) => setNa({ ...na, fullName: e.target.value })} placeholder="Ana García López" />
+              </div>
+              <div className="field">
+                <label>Nº de colegiado</label>
+                <input type="text" value={na.colegiado} onChange={(e) => setNa({ ...na, colegiado: e.target.value })} placeholder="282812345" />
+              </div>
+            </div>
+            <div className="field">
+              <label>Tratamiento</label>
+              <select value={na.title} onChange={(e) => setNa({ ...na, title: e.target.value })}>
+                <option value="Dr./Dra.">Dr./Dra.</option>
+                <option value="Dr.">Dr.</option>
+                <option value="Dra.">Dra.</option>
+              </select>
+            </div>
+            <button className="btn primary block" onClick={() => void createAnesth()} disabled={!na.fullName.trim() || !na.colegiado.trim()}>
+              Crear anestesiólogo
+            </button>
+          </div>
+
+          <div className="card">
+            <h2 style={{ fontSize: 16 }}>Anestesiólogos ({anesth.length})</h2>
+            <div className="pill-list">
+              {anesth.map((a) => (
+                <div className="pill" key={a.id}>
+                  <span className="m">
+                    <strong>{a.title} {a.fullName}</strong> <span className="sm">· Nº col. {a.colegiado}</span>
+                    <div className="sm">
+                      {a.active === 1 ? "Activo" : "Desactivado"}
+                      {a.mustChangePin === 1 ? " · PIN provisional (sin estrenar)" : " · PIN propio"}
+                      {a.locked ? " · bloqueado 15 min" : ""}
+                    </div>
+                  </span>
+                  <button className="btn ghost" onClick={() => void editAnesth(a)}>Editar</button>
+                  <button className="btn ghost" onClick={() => void resetAnesthPin(a)}>PIN</button>
+                  <button className={`btn ${a.active === 1 ? "danger" : ""}`} onClick={() => void toggleAnesthActive(a)}>
+                    {a.active === 1 ? "Desactivar" : "Activar"}
                   </button>
                 </div>
               ))}

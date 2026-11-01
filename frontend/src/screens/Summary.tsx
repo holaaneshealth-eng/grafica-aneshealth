@@ -13,6 +13,7 @@ import { formatNum } from "../domain/calculations";
 import { techniqueDetailLines } from "../domain/techniqueRender";
 import { WHO_PHASES } from "../domain/clinical";
 import { AnesthesiaEndModal } from "../components/AnesthesiaEndModal";
+import { SignModal, ResponsibleModal, type SignResult } from "../components/AnesthSign";
 import { positionById, consciousnessLabel, airwayLabel, oxygenLabel, destinationLabel, bromageLabel, tofLabel, PROTECTION_MEASURES } from "../domain/positions";
 import { laborTotals } from "../domain/laborTotals";
 import { deliveryLabel, instrumentalLabel, LABOR_COMPLICATIONS } from "../domain/labor";
@@ -43,6 +44,8 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
   const [mailMsg, setMailMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [showSignWarn, setShowSignWarn] = useState(false); // aviso al firmar con datos esenciales incompletos
   const [missingEssential, setMissingEssential] = useState<string[]>([]);
+  const [showSignModal, setShowSignModal] = useState(false); // modal de firma (anestesiólogo + PIN)
+  const [showResponsibleModal, setShowResponsibleModal] = useState(false); // elegir responsable desde el aviso
   const [showEndModal, setShowEndModal] = useState(false);
 
   // La tabla seriada excluye las constantes que ya se representan en la gráfica.
@@ -184,10 +187,12 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
       setShowSignWarn(true);
       return;
     }
-    doSign();
+    openSign();
   }
 
-  function doSign() {
+  // Prepara la firma: ofrece parar las perfusiones abiertas y abre el modal de firma
+  // (selección de anestesiólogo + PIN). La firma la realiza el servidor tras validar el PIN.
+  function openSign() {
     // Aviso: perfusiones sin registrar su parada. Se ofrece registrarla antes de firmar.
     const open = cs.infusions.filter((i) => i.active);
     if (open.length > 0) {
@@ -209,11 +214,15 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
         }
       }
     }
-    const prior = getCaseEvents(cs.caseId).filter((e) => e.type === "CASE_SIGNED").length;
-    const who = useStore.getState().user?.displayName ?? "";
-    append(cs.caseId, "CASE_SIGNED", { signedBy: who });
-    onToast("Hoja firmada por " + who);
-    void sendPdfByEmail(prior + 1, new Date().toISOString());
+    setShowSignModal(true);
+  }
+
+  // Tras firmar en el servidor (PIN válido): el caso ya refleja la firma; se envía el PDF.
+  function onSigned(r: SignResult) {
+    setShowSignModal(false);
+    const version = useStore.getState().getCaseEvents(cs.caseId).filter((e) => e.type === "CASE_SIGNED").length || 1;
+    onToast(`Hoja firmada por ${r.title} ${r.signedBy}`);
+    void sendPdfByEmail(version, new Date().toISOString());
   }
 
   function retrySend() {
@@ -317,7 +326,8 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
         {cs.signedAt ? (
           <>
             <div className="alert" style={{ marginTop: 12 }}>
-              Firmada por {cs.signedBy} el {dmy(cs.signedAt)} a las {hhmm(cs.signedAt)}.
+              Firmada por {cs.signedTitle ? `${cs.signedTitle} ` : ""}{cs.signedBy}
+              {cs.signedColegiado ? ` · Nº colegiado ${cs.signedColegiado}` : ""} el {dmy(cs.signedAt)} a las {hhmm(cs.signedAt)}.
               {signatureCount > 1 ? ` (versión ${signatureCount})` : ""}
             </div>
             {emailPending ? (
@@ -656,10 +666,12 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
 
         <div className="foot">
           <span>Documento pseudonimizado (RGPD). Identificado únicamente por IA.</span>
-          <span>{cs.signedAt ? `Firmado: ${cs.signedBy} · ${dmy(cs.signedAt)} ${hhmm(cs.signedAt)}` : "Sin firmar"}</span>
+          <span>{cs.signedAt ? `Firmado: ${cs.signedTitle ? cs.signedTitle + " " : ""}${cs.signedBy}${cs.signedColegiado ? ` · Nº colegiado ${cs.signedColegiado}` : ""} · ${dmy(cs.signedAt)} ${hhmm(cs.signedAt)}` : "Sin firmar"}</span>
         </div>
       </div>
 
+      {showResponsibleModal && <ResponsibleModal cs={cs} onClose={() => setShowResponsibleModal(false)} onDone={onToast} />}
+      {showSignModal && <SignModal cs={cs} onClose={() => setShowSignModal(false)} onSigned={onSigned} />}
       {showEndModal && <AnesthesiaEndModal cs={cs} onClose={() => setShowEndModal(false)} onDone={onToast} />}
       {showSignWarn && (
         <div className="modal-backdrop" onClick={() => setShowSignWarn(false)}>
@@ -675,10 +687,17 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
               ))}
             </ul>
             <div className="grid2" style={{ marginTop: 8 }}>
-              <button className="btn primary lg" onClick={() => setShowSignWarn(false)}>
+              <button
+                className="btn primary lg"
+                onClick={() => {
+                  setShowSignWarn(false);
+                  // "Completar ahora" lleva a elegir el responsable si es lo que falta.
+                  if (!cs.responsible) setShowResponsibleModal(true);
+                }}
+              >
                 Completar ahora
               </button>
-              <button className="btn lg" onClick={() => { setShowSignWarn(false); doSign(); }}>
+              <button className="btn lg" onClick={() => { setShowSignWarn(false); openSign(); }}>
                 Firmar igualmente
               </button>
             </div>
@@ -754,6 +773,7 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
 // "Firmar igualmente"). En casos de parto se exige además la lectura final de la bomba y el cierre.
 function missingEssentials(cs: CaseState): string[] {
   const m: string[] = [];
+  if (!cs.responsible) m.push("Sin anestesiólogo responsable");
   const hasV = (code: string) => cs.vitals.some((v) => v.values[code] != null);
   const vTA = hasV("TAS") || hasV("TAD") || hasV("TAM") || hasV("PAIS") || hasV("PAIM") || hasV("PAID");
   const vFC = hasV("FC");

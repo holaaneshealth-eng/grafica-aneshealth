@@ -4,7 +4,7 @@
 import { create } from "zustand";
 import type { BaseEvent, EventType, CaseState } from "../domain/events";
 import { projectCase, buildTimeline, type TimelineItem } from "./projection";
-import { api, setCsrfToken, type ApiCase, type ApiEvent, type ApiUser } from "../api";
+import { api, setCsrfToken, type ApiCase, type ApiEvent, type ApiUser, type ApiAnesthesiologist } from "../api";
 import type { DrugDef } from "../domain/drugs";
 import { setCustomDrugs, upsertCustomDrugLocal, getCustomDrugs, readLegacyCustomDrugs, clearLegacyCustomDrugs } from "../domain/customDrugs";
 
@@ -93,6 +93,7 @@ interface AppState {
   online: boolean;
   pending: PendingEvent[];
   customDrugs: DrugDef[]; // catálogo "Otro fármaco" (servidor), reflejado para repintar la UI
+  anesthesiologists: ApiAnesthesiologist[]; // lista para seleccionar (firma / responsable)
   settings: { laborFirstTestMin: number; laborReevalMin: number };
 
   // sesion
@@ -108,12 +109,14 @@ interface AppState {
   setActiveCase: (id: string | null) => void;
   append: (caseId: string, type: EventType, payload: Record<string, unknown>, occurredAt?: string) => void;
   reopenCase: (caseId: string) => void;
+  reloadCaseEvents: (id: string) => Promise<void>;
   voidEvent: (caseId: string, targetId: string, reason: string) => Promise<void>;
   deleteCase: (id: string) => Promise<void>;
   flush: () => Promise<void>;
   setOnline: (v: boolean) => void;
   loadCustomDrugs: () => Promise<void>;
   addCustomDrug: (def: DrugDef) => void;
+  loadAnesthesiologists: () => Promise<void>;
 
   // permisos / selectores
   canWrite: (caseId: string) => boolean;
@@ -132,6 +135,7 @@ export const useStore = create<AppState>((set, get) => ({
   online: typeof navigator !== "undefined" ? navigator.onLine : true,
   pending: loadQueue(),
   customDrugs: [],
+  anesthesiologists: [],
   settings: { laborFirstTestMin: 60, laborReevalMin: 100 },
 
   bootstrap: async () => {
@@ -141,6 +145,7 @@ export const useStore = create<AppState>((set, get) => ({
       set({ user, booting: false });
       await get().refreshCases();
       await get().loadCustomDrugs();
+      await get().loadAnesthesiologists();
       await get().loadSettings();
       await get().flush();
     } catch {
@@ -154,6 +159,15 @@ export const useStore = create<AppState>((set, get) => ({
       set({ settings: s });
     } catch {
       /* se usan los valores por defecto */
+    }
+  },
+
+  loadAnesthesiologists: async () => {
+    try {
+      const { anesthesiologists } = await api.listSelectableAnesthesiologists();
+      set({ anesthesiologists });
+    } catch {
+      /* la firma personal puede no estar disponible; se usa lista vacía */
     }
   },
 
@@ -337,6 +351,24 @@ export const useStore = create<AppState>((set, get) => ({
       }
     } finally {
       flushing = false;
+    }
+  },
+
+  // Recarga los eventos de un caso desde el servidor (p. ej. tras firmar, que es una
+  // acción de servidor). Unión no destructiva: nunca pierde eventos locales aún sin enviar.
+  reloadCaseEvents: async (id) => {
+    try {
+      const { events } = await api.getEvents(id);
+      const mapped = events.map(toBaseEvent);
+      if (!mapped.some((e) => e.type === "CASE_CREATED")) return;
+      set((s) => {
+        const serverIds = new Set(mapped.map((e) => e.eventId));
+        const localOnly = s.events.filter((e) => e.caseId === id && !serverIds.has(e.eventId));
+        return { events: [...s.events.filter((e) => e.caseId !== id), ...mapped, ...localOnly], loaded: { ...s.loaded, [id]: true } };
+      });
+      await get().refreshCases();
+    } catch {
+      /* ignore */
     }
   },
 

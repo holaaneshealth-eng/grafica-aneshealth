@@ -3,6 +3,7 @@ import { useStore } from "../store/store";
 import type { CaseState } from "../domain/events";
 import { isoFromLocalInput, isoToLocalInput } from "../utils/time";
 import { YesNo } from "../components/YesNo";
+import { ResponsibleSection } from "../components/AnesthSign";
 import { ASA_CLASSES } from "../pdf/config/chartParams";
 
 interface Props {
@@ -46,6 +47,7 @@ export function Phase1({ cs }: Props) {
 
   return (
     <div>
+      <ResponsibleSection cs={cs} />
       <div className="card">
         <h2>Fase 1 · Área de preparación</h2>
         <p className="sub">Todos los campos son obligatorios. "No relevante" es una respuesta válida.</p>

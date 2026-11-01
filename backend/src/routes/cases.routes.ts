@@ -1,13 +1,15 @@
 import crypto from "crypto";
 import { Router } from "express";
 import { z } from "zod";
+import { config } from "../config";
 import { audit, dbFeatures } from "../db";
-import { cases, events, casePhotos } from "../repo";
+import { cases, events, casePhotos, anesthesiologists } from "../repo";
 import { appendEvent, createCase, voidEvent, mapCase, mapEvent } from "../eventService";
 import { retentionPreview } from "../retention";
 import { authGuard, csrfGuard, requirePasswordChanged, requireAdmin } from "../middleware";
 import { canCreateCase } from "../rbac";
-import { appendEventSchema, voidEventSchema, createCaseSchema } from "../validation";
+import { verifyPin } from "../auth";
+import { appendEventSchema, voidEventSchema, createCaseSchema, signCaseSchema } from "../validation";
 
 export const casesRouter = Router();
 
@@ -109,6 +111,67 @@ casesRouter.post("/:id/events", csrfGuard, async (req, res) => {
     audit({ userId: u.id, username: u.username, action: "EVENT_APPENDED", targetType: "case", targetId: c.ia, detail: data.type, ip: req.ip });
   }
   res.status(result.deduped ? 200 : 201).json({ event: mapEvent(result.event), deduped: result.deduped });
+});
+
+// Firmar un caso con la firma personal del anestesiólogo (nombre + PIN). La firma
+// requiere seleccionar un anestesiólogo de la lista y su PIN válido; la cuenta de
+// administrador NO puede firmar. Con bloqueo por intentos fallidos (5 → 15 min).
+casesRouter.post("/:id/sign", csrfGuard, async (req, res) => {
+  if (!dbFeatures.anesthesiologists) {
+    res.status(503).json({ error: "La firma personal no está disponible en el servidor.", code: "ANESTH_UNAVAILABLE" });
+    return;
+  }
+  const c = await cases.byId(req.params.id);
+  if (!c) {
+    res.status(404).json({ error: "Caso no encontrado" });
+    return;
+  }
+  const u = req.user!;
+  if (u.role === "admin") {
+    res.status(403).json({ error: "La cuenta de administrador no puede firmar casos." });
+    return;
+  }
+  if (!(c.owner_user_id === u.id && c.status !== "signed")) {
+    res.status(403).json({ error: "No tienes permiso para firmar este caso" });
+    return;
+  }
+  const parsed = signCaseSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Datos inválidos" });
+    return;
+  }
+  const a = await anesthesiologists.byId(parsed.data.anesthesiologistId);
+  if (!a || a.active !== 1) {
+    res.status(400).json({ error: "Anestesiólogo no disponible" });
+    return;
+  }
+  if (a.locked_until && new Date(a.locked_until).getTime() > Date.now()) {
+    audit({ userId: u.id, username: u.username, action: "SIGN_PIN_LOCKED", targetType: "anesthesiologist", targetId: a.full_name, ip: req.ip, success: false });
+    res.status(429).json({ error: "Perfil bloqueado temporalmente por intentos fallidos", code: "PIN_LOCKED" });
+    return;
+  }
+  const ok = a.pin_hash ? await verifyPin(parsed.data.pin, a.pin_hash) : false;
+  if (!ok) {
+    const attempts = a.failed_attempts + 1;
+    const lockedUntil = attempts >= config.maxFailedLogins ? new Date(Date.now() + config.lockoutMinutes * 60000).toISOString() : null;
+    await anesthesiologists.recordPinFailure(a.id, attempts, lockedUntil);
+    audit({ userId: u.id, username: u.username, action: "SIGN_PIN_FAILED", targetType: "anesthesiologist", targetId: a.full_name, ip: req.ip, success: false });
+    res.status(401).json({ error: "PIN incorrecto" });
+    return;
+  }
+  await anesthesiologists.recordPinSuccess(a.id);
+  // Primera firma: el PIN provisional es válido pero debe cambiarse antes de firmar.
+  if (a.must_change_pin === 1) {
+    res.status(409).json({ error: "Debe cambiar el PIN provisional antes de firmar", code: "PIN_MUST_CHANGE" });
+    return;
+  }
+  const result = await appendEvent(
+    c.case_id,
+    { type: "CASE_SIGNED", payload: { signedBy: a.full_name, anesthesiologistId: a.id, colegiado: a.colegiado, title: a.title } },
+    u,
+  );
+  audit({ userId: u.id, username: u.username, action: "CASE_SIGNED", targetType: "case", targetId: c.ia, detail: `${a.title} ${a.full_name} · Nº ${a.colegiado}`, ip: req.ip });
+  res.status(201).json({ ok: true, signedBy: a.full_name, colegiado: a.colegiado, title: a.title, event: mapEvent(result.event) });
 });
 
 // ---- Fotos del monitor (Vía 1: se guardan sin analizar y van al PDF) ----
