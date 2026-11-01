@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { config } from "../config";
-import { audit } from "../db";
+import { audit, dbFeatures } from "../db";
 import { users } from "../repo";
 import {
   hashPassword,
@@ -10,6 +10,7 @@ import {
   clearSessionCookie,
   issueCsrf,
   validatePasswordStrength,
+  generateSessionId,
   type AuthUser,
 } from "../auth";
 import { authGuard, loginLimiter } from "../middleware";
@@ -67,8 +68,30 @@ authRouter.post("/login", loginLimiter, async (req, res) => {
     return;
   }
 
-  await users.recordLoginSuccess(row.id, new Date().toISOString());
-  const token = signToken({ id: row.id, username: row.username, role: row.role, tokenVersion: row.token_version });
+  // Sesión única por cuenta (C1): una sesión solo cuenta como abierta si tuvo actividad en
+  // los últimos `inactivityTimeoutSeconds` (30 min). Si hay una activa en otro dispositivo y
+  // no se fuerza, se avisa (409) con la hora de inicio; si se fuerza, se desplaza (auditado).
+  const singleSession = config.singleSessionEnabled && dbFeatures.singleSession;
+  let sessionId: string | undefined;
+  if (singleSession) {
+    const lastAct = row.session_last_activity ? new Date(row.session_last_activity).getTime() : 0;
+    const activeElsewhere = !!row.current_session_id && Date.now() - lastAct < config.inactivityTimeoutSeconds * 1000;
+    const force = (req.body as { force?: unknown })?.force === true;
+    if (activeElsewhere && !force) {
+      audit({ userId: row.id, username, action: "LOGIN_BLOCKED_SESSION", ...meta, success: false });
+      res.status(409).json({ error: "La cuenta está abierta en otro dispositivo", code: "SESSION_ACTIVE_ELSEWHERE", since: row.last_login });
+      return;
+    }
+    if (activeElsewhere && force) {
+      audit({ userId: row.id, username, action: "FORCED_LOGOUT_OTHER_DEVICE", ...meta });
+    }
+    sessionId = generateSessionId();
+  }
+
+  const now = new Date().toISOString();
+  await users.recordLoginSuccess(row.id, now);
+  if (singleSession && sessionId) await users.setSession(row.id, sessionId, now);
+  const token = signToken({ id: row.id, username: row.username, role: row.role, tokenVersion: row.token_version, sessionId });
   setSessionCookie(res, token);
   const csrf = issueCsrf(res);
   audit({ userId: row.id, username, action: "LOGIN_OK", ...meta });
@@ -85,9 +108,13 @@ authRouter.post("/login", loginLimiter, async (req, res) => {
   res.json({ user: publicUser(user), csrfToken: csrf });
 });
 
-authRouter.post("/logout", authGuard, (req, res) => {
+authRouter.post("/logout", authGuard, async (req, res) => {
   clearSessionCookie(res);
   res.clearCookie(config.csrfCookieName, { path: "/" });
+  // Libera la sesión en el servidor (C1): deja la cuenta disponible para otro dispositivo.
+  if (config.singleSessionEnabled && dbFeatures.singleSession && req.user!.sessionId) {
+    await users.clearSession(req.user!.id, req.user!.sessionId);
+  }
   audit({ userId: req.user!.id, username: req.user!.username, action: "LOGOUT", ip: req.ip });
   res.json({ ok: true });
 });

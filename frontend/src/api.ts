@@ -66,10 +66,12 @@ export interface AuditEntry {
 export class ApiError extends Error {
   status: number;
   code?: string;
-  constructor(message: string, status: number, code?: string) {
+  data?: unknown;
+  constructor(message: string, status: number, code?: string, data?: unknown) {
     super(message);
     this.status = status;
     this.code = code;
+    this.data = data;
   }
 }
 
@@ -78,8 +80,8 @@ export function setCsrfToken(t: string): void {
   csrfToken = t;
 }
 
-let onUnauthorized: (() => void) | null = null;
-export function setUnauthorizedHandler(fn: () => void): void {
+let onUnauthorized: ((code?: string) => void) | null = null;
+export function setUnauthorizedHandler(fn: (code?: string) => void): void {
   onUnauthorized = fn;
 }
 
@@ -97,17 +99,16 @@ async function request<T>(path: string, method = "GET", body?: unknown): Promise
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
-  if (res.status === 401 && onUnauthorized) onUnauthorized();
-
   let json: unknown = null;
   try {
     json = await res.json();
   } catch {
     /* respuesta sin cuerpo */
   }
+  const j = json as { error?: string; code?: string } | null;
+  if (res.status === 401 && onUnauthorized) onUnauthorized(j?.code);
   if (!res.ok) {
-    const j = json as { error?: string; code?: string } | null;
-    throw new ApiError(j?.error ?? `Error ${res.status}`, res.status, j?.code);
+    throw new ApiError(j?.error ?? `Error ${res.status}`, res.status, j?.code, json);
   }
   return json as T;
 }
@@ -140,8 +141,8 @@ export interface ApiAnesthesiologist {
 }
 
 export const api = {
-  login: (username: string, password: string) =>
-    request<{ user: ApiUser; csrfToken: string }>("/auth/login", "POST", { username, password }),
+  login: (username: string, password: string, force = false) =>
+    request<{ user: ApiUser; csrfToken: string }>("/auth/login", "POST", { username, password, ...(force ? { force: true } : {}) }),
   logout: () => request<{ ok: true }>("/auth/logout", "POST", {}),
   me: () => request<{ user: ApiUser; csrfToken: string }>("/auth/me"),
   changePassword: (currentPassword: string, newPassword: string) =>

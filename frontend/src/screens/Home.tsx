@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useStore, daysUntilPurge, RETENTION_DAYS } from "../store/store";
 import { dmy, hhmm } from "../utils/time";
-import type { ApiCase } from "../api";
+import { ApiError, type ApiCase } from "../api";
 import type { CaseType } from "../domain/labor";
 
 interface Props {
@@ -28,10 +28,16 @@ export function Home({ onOpen, onToast }: Props) {
 
   async function newCase() {
     setCreating(true);
-    const id = await createCase(newType);
-    setCreating(false);
-    if (id) onOpen(id);
-    else onToast("No se pudo crear el caso (necesitas conexión)");
+    try {
+      const id = await createCase(newType);
+      if (id) onOpen(id);
+      else onToast("No se pudo crear el caso (necesitas conexión)");
+    } catch (e) {
+      // C2: ya hay un caso activo en esta cuenta (quirófano/endoscopias).
+      onToast(e instanceof ApiError ? e.message : "No se pudo crear el caso");
+    } finally {
+      setCreating(false);
+    }
   }
 
   // Recordatorios de parto para la lista: cuándo toca el primer test y la reevaluación.
@@ -115,7 +121,10 @@ export function Home({ onOpen, onToast }: Props) {
         {creating ? "Creando..." : newType === "analgesia_parto" ? "+ Nueva analgesia de parto" : "+ Nuevo procedimiento"}
       </button>
       <p className="sub" style={{ textAlign: "center", marginTop: 8 }}>
-        Se generará automáticamente un Identificador Anestésico (IA). Puedes tener varios pacientes en curso a la vez.
+        Se generará automáticamente un Identificador Anestésico (IA).{" "}
+        {defaultType === "analgesia_parto"
+          ? "Puedes tener varias analgesias de parto en curso a la vez."
+          : "Solo puede haber un caso activo a la vez: cierra el actual antes de crear otro."}
       </p>
 
       {active.length > 0 && (

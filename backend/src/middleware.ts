@@ -3,7 +3,7 @@ import rateLimit from "express-rate-limit";
 import { config } from "./config";
 import { verifyToken, type AuthUser } from "./auth";
 import { users } from "./repo";
-import { audit } from "./db";
+import { audit, dbFeatures } from "./db";
 
 /** Verifica la sesion (cookie httpOnly con JWT) y adjunta req.user. */
 export async function authGuard(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -23,6 +23,13 @@ export async function authGuard(req: Request, res: Response, next: NextFunction)
       res.status(401).json({ error: "Sesion revocada" });
       return;
     }
+    // Sesión única por cuenta (C1): si otro dispositivo ha tomado la sesión, este token
+    // deja de valer. Se distingue con un código para avisar al usuario desplazado.
+    const singleSession = config.singleSessionEnabled && dbFeatures.singleSession;
+    if (singleSession && payload.sid && row.current_session_id !== payload.sid) {
+      res.status(401).json({ error: "Sesión abierta en otro dispositivo", code: "SESSION_SUPERSEDED" });
+      return;
+    }
     const user: AuthUser = {
       id: row.id,
       username: row.username,
@@ -31,8 +38,14 @@ export async function authGuard(req: Request, res: Response, next: NextFunction)
       location: row.location,
       tokenVersion: row.token_version,
       mustChangePassword: row.must_change_password === 1,
+      sessionId: payload.sid ?? null,
     };
     req.user = user;
+    // Refresca la última actividad de la sesión (como mucho una vez por minuto).
+    if (singleSession && payload.sid) {
+      const now = Date.now();
+      void users.touchSession(row.id, new Date(now).toISOString(), new Date(now - 60_000).toISOString());
+    }
     next();
   } catch (err) {
     next(err);

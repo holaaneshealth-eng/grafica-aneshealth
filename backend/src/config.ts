@@ -72,6 +72,10 @@ export const config = {
   // Bloqueo por intentos fallidos
   maxFailedLogins: parseInt(process.env.MAX_FAILED_LOGINS ?? "5", 10),
   lockoutMinutes: parseInt(process.env.LOCKOUT_MINUTES ?? "15", 10),
+  // Sesión única por cuenta (C1). Activada por defecto; SINGLE_SESSION_ENABLED=false la desactiva
+  // sin tocar el código. Una sesión solo cuenta como abierta si tuvo actividad en los últimos
+  // `inactivityTimeoutSeconds` (30 min); pasado ese tiempo, un nuevo inicio entra sin aviso.
+  singleSessionEnabled: (process.env.SINGLE_SESSION_ENABLED ?? "true").toLowerCase() !== "false",
   // Fuerza de bcrypt
   bcryptRounds: parseInt(process.env.BCRYPT_ROUNDS ?? "12", 10),
   // Semillas opcionales de contrasenas (si no, se generan y se escriben en credentialsFile)

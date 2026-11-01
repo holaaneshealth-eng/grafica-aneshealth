@@ -23,7 +23,7 @@ export default function App() {
   const user = useStore((s) => s.user);
   const booting = useStore((s) => s.booting);
   const bootstrap = useStore((s) => s.bootstrap);
-  const setUser = useStore((s) => s.setUser);
+  const handleUnauthorized = useStore((s) => s.handleUnauthorized);
   const logout = useStore((s) => s.logout);
 
   const activeCaseId = useStore((s) => s.activeCaseId);
@@ -60,9 +60,9 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    setUnauthorizedHandler(() => setUser(null));
+    setUnauthorizedHandler((code) => handleUnauthorized(code));
     void bootstrap();
-  }, [bootstrap, setUser]);
+  }, [bootstrap, handleUnauthorized]);
 
   useEffect(() => {
     const t = setInterval(() => setClock(new Date().toISOString()), 1000);

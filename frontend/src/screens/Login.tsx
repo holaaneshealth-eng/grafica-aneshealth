@@ -1,29 +1,43 @@
 import { useState } from "react";
 import { api, setCsrfToken, ApiError } from "../api";
 import { useStore } from "../store/store";
+import { hhmm } from "../utils/time";
 
 export function Login() {
   const setUser = useStore((s) => s.setUser);
   const bootstrap = useStore((s) => s.bootstrap);
+  const authNotice = useStore((s) => s.authNotice);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Sesión única (C1): si la cuenta ya está abierta en otro dispositivo, se pregunta.
+  const [conflictSince, setConflictSince] = useState<string | null>(null);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  async function doLogin(force: boolean) {
     setBusy(true);
     setError(null);
     try {
-      const { user, csrfToken } = await api.login(username.trim(), password);
+      const { user, csrfToken } = await api.login(username.trim(), password, force);
+      setConflictSince(null);
       setCsrfToken(csrfToken);
       setUser(user);
       if (!user.mustChangePassword) await bootstrap();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "No se pudo iniciar sesión");
+      if (err instanceof ApiError && err.code === "SESSION_ACTIVE_ELSEWHERE") {
+        const since = (err.data as { since?: string } | undefined)?.since ?? null;
+        setConflictSince(since);
+      } else {
+        setError(err instanceof ApiError ? err.message : "No se pudo iniciar sesión");
+      }
     } finally {
       setBusy(false);
     }
+  }
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    void doLogin(false);
   }
 
   return (
@@ -34,6 +48,8 @@ export function Login() {
         </div>
         <h1>AnesHealth</h1>
         <p className="sub" style={{ textAlign: "center" }}>Hoja anestésica digital</p>
+
+        {authNotice && !conflictSince && <div className="alert">{authNotice}</div>}
 
         <div className="field">
           <label>Usuario</label>
@@ -59,9 +75,25 @@ export function Login() {
 
         {error && <div className="alert danger">{error}</div>}
 
-        <button className="btn primary block lg" type="submit" disabled={busy || !username || !password}>
-          {busy ? "Entrando..." : "Iniciar sesión"}
-        </button>
+        {conflictSince ? (
+          <div className="alert">
+            <div style={{ marginBottom: 8 }}>
+              Esta cuenta está abierta en otro dispositivo desde las {hhmm(conflictSince)}. Si entras aquí, se cerrará allí.
+            </div>
+            <div className="grid2">
+              <button className="btn lg" type="button" onClick={() => setConflictSince(null)} disabled={busy}>
+                Cancelar
+              </button>
+              <button className="btn primary lg" type="button" onClick={() => void doLogin(true)} disabled={busy}>
+                {busy ? "Entrando..." : "Cerrar la otra sesión y entrar"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button className="btn primary block lg" type="submit" disabled={busy || !username || !password}>
+            {busy ? "Entrando..." : "Iniciar sesión"}
+          </button>
+        )}
       </form>
     </div>
   );

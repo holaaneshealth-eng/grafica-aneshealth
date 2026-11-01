@@ -14,6 +14,8 @@ export interface AuthUser {
   location: string | null;
   tokenVersion: number;
   mustChangePassword: boolean;
+  /** Id de la sesión (C1: sesión única por cuenta). Ausente si la función está desactivada. */
+  sessionId?: string | null;
 }
 
 interface TokenPayload {
@@ -21,6 +23,12 @@ interface TokenPayload {
   username: string;
   role: Role;
   tv: number;
+  sid?: string;
+}
+
+/** Id de sesión aleatorio (para la sesión única por cuenta). */
+export function generateSessionId(): string {
+  return crypto.randomBytes(16).toString("hex");
 }
 
 export async function hashPassword(plain: string): Promise<string> {
@@ -31,8 +39,9 @@ export async function verifyPassword(plain: string, hash: string): Promise<boole
   return bcrypt.compare(plain, hash);
 }
 
-export function signToken(user: { id: string; username: string; role: Role; tokenVersion: number }): string {
+export function signToken(user: { id: string; username: string; role: Role; tokenVersion: number; sessionId?: string }): string {
   const payload: TokenPayload = { sub: user.id, username: user.username, role: user.role, tv: user.tokenVersion };
+  if (user.sessionId) payload.sid = user.sessionId;
   return jwt.sign(payload, config.jwtSecret, { expiresIn: config.sessionTtlSeconds, algorithm: "HS256" });
 }
 

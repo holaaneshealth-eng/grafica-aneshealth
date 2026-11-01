@@ -6,7 +6,7 @@ import cors from "cors";
 import compression from "compression";
 import cookieParser from "cookie-parser";
 import { config } from "./config";
-import { migrate, migrateCasePhotos, migrateCustomDrugs, migrateLabor, migrateAnesthesiologists } from "./db";
+import { migrate, migrateCasePhotos, migrateCustomDrugs, migrateLabor, migrateAnesthesiologists, migrateSessions } from "./db";
 import { seedUsers, resetAdminIfRequested } from "./seed";
 import { startRetentionJob } from "./retention";
 import { globalLimiter, notFound, errorHandler } from "./middleware";
@@ -32,6 +32,7 @@ async function main(): Promise<void> {
   await migrateCustomDrugs(); // no fatal: si falla, se usa solo el catálogo fijo
   await migrateLabor(); // no fatal: si falla, la Analgesia de parto queda desactivada
   await migrateAnesthesiologists(); // no fatal: si falla, la firma personal queda desactivada
+  await migrateSessions(); // no fatal: si falla, la sesión única queda desactivada
   await seedUsers();
   await resetAdminIfRequested();
   startRetentionJob();

@@ -150,7 +150,7 @@ export async function migrate(): Promise<void> {
 // Estado de funciones opcionales que dependen de una migración que puede fallar sin
 // tumbar el servidor. `photos` controla la Vía 1 (fotos del monitor); `customDrugs`,
 // el catálogo compartido de fármacos añadidos a mano.
-export const dbFeatures = { photos: false, customDrugs: false, labor: false, anesthesiologists: false };
+export const dbFeatures = { photos: false, customDrugs: false, labor: false, anesthesiologists: false, singleSession: false };
 
 // Esquema de la tabla de fotos del monitor (Vía 1). Idempotente (IF NOT EXISTS).
 // Se migra APARTE y de forma NO fatal: si falla, el servidor arranca igualmente y la
@@ -269,6 +269,27 @@ export async function migrateAnesthesiologists(): Promise<void> {
     dbFeatures.anesthesiologists = false;
     // eslint-disable-next-line no-console
     console.error("[db] no se pudo crear anesthesiologists; la firma personal queda DESACTIVADA:", (err as Error).message);
+  }
+}
+
+// Columnas para la sesión única por cuenta (C1): id de la sesión activa y su última
+// actividad. Migración idempotente y NO fatal (como las anteriores): si falla, la sesión
+// única queda desactivada (dbFeatures.singleSession = false) y el login funciona como antes.
+const SESSIONS_SCHEMA = `
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS current_session_id TEXT;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS session_last_activity TEXT;
+`;
+
+export async function migrateSessions(): Promise<void> {
+  try {
+    await pool.query(SESSIONS_SCHEMA);
+    dbFeatures.singleSession = true;
+    // eslint-disable-next-line no-console
+    console.log("[db] columnas de sesión única listas (una sesión por cuenta activada).");
+  } catch (err) {
+    dbFeatures.singleSession = false;
+    // eslint-disable-next-line no-console
+    console.error("[db] no se pudieron crear las columnas de sesión; la sesión única queda DESACTIVADA:", (err as Error).message);
   }
 }
 
