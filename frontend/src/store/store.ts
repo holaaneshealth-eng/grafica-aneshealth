@@ -4,7 +4,7 @@
 import { create } from "zustand";
 import type { BaseEvent, EventType, CaseState } from "../domain/events";
 import { projectCase, buildTimeline, type TimelineItem } from "./projection";
-import { api, setCsrfToken, type ApiCase, type ApiEvent, type ApiUser, type ApiAnesthesiologist } from "../api";
+import { api, ApiError, setCsrfToken, type ApiCase, type ApiEvent, type ApiUser, type ApiAnesthesiologist } from "../api";
 import type { DrugDef } from "../domain/drugs";
 import { setCustomDrugs, upsertCustomDrugLocal, getCustomDrugs, readLegacyCustomDrugs, clearLegacyCustomDrugs } from "../domain/customDrugs";
 
@@ -95,11 +95,14 @@ interface AppState {
   customDrugs: DrugDef[]; // catálogo "Otro fármaco" (servidor), reflejado para repintar la UI
   anesthesiologists: ApiAnesthesiologist[]; // lista para seleccionar (firma / responsable)
   settings: { laborFirstTestMin: number; laborReevalMin: number };
+  // Mensaje a mostrar en la pantalla de login (p. ej. "sesión cerrada en otro dispositivo").
+  authNotice: string | null;
 
   // sesion
   bootstrap: () => Promise<void>;
   setUser: (u: ApiUser | null) => void;
   logout: () => Promise<void>;
+  handleUnauthorized: (code?: string) => void;
 
   // datos
   refreshCases: () => Promise<void>;
@@ -137,6 +140,7 @@ export const useStore = create<AppState>((set, get) => ({
   customDrugs: [],
   anesthesiologists: [],
   settings: { laborFirstTestMin: 60, laborReevalMin: 100 },
+  authNotice: null,
 
   bootstrap: async () => {
     try {
@@ -205,7 +209,19 @@ export const useStore = create<AppState>((set, get) => ({
     });
   },
 
-  setUser: (u) => set({ user: u }),
+  setUser: (u) => set(u ? { user: u, authNotice: null } : { user: u }),
+
+  // Gestiona un 401: distingue el desplazamiento por sesión única (C1) para avisar, indicando
+  // cuántos registros quedan sin enviar en este dispositivo (se enviarán al volver a entrar).
+  handleUnauthorized: (code) => {
+    const n = get().pending.length;
+    const notice =
+      code === "SESSION_SUPERSEDED"
+        ? "Sesión cerrada porque se abrió en otro dispositivo." +
+          (n > 0 ? ` Hay ${n} registro(s) sin enviar; se enviarán al volver a entrar con esta cuenta en este dispositivo.` : "")
+        : null;
+    set({ user: null, authNotice: notice });
+  },
 
   logout: async () => {
     try {
@@ -244,7 +260,10 @@ export const useStore = create<AppState>((set, get) => ({
         activeCaseId: c.caseId,
       }));
       return c.caseId;
-    } catch {
+    } catch (e) {
+      // Un 4xx (p. ej. C2: ya hay un caso activo) debe mostrarse al usuario; un error de red
+      // devuelve null (se reintenta / avisa de falta de conexión).
+      if (e instanceof ApiError) throw e;
       return null;
     }
   },

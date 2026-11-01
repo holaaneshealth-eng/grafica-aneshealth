@@ -15,6 +15,8 @@ export interface UserRow {
   locked_until: string | null;
   last_login: string | null;
   created_at: string;
+  current_session_id?: string | null;
+  session_last_activity?: string | null;
 }
 
 export interface AdminUserRow {
@@ -115,6 +117,22 @@ export const users = {
   async count(): Promise<number> {
     return (await query<{ n: number }>(`SELECT COUNT(*)::int AS n FROM users`)).rows[0].n;
   },
+  // ---- Sesión única por cuenta (C1) ----
+  async setSession(id: string, sid: string, at: string): Promise<void> {
+    await query(`UPDATE users SET current_session_id=$2, session_last_activity=$3 WHERE id=$1`, [id, sid, at]);
+  },
+  // Actualiza la última actividad de la sesión (limitado: solo si el valor guardado es más
+  // antiguo que `staleBefore`, para no escribir en cada petición).
+  async touchSession(id: string, at: string, staleBefore: string): Promise<void> {
+    await query(
+      `UPDATE users SET session_last_activity=$2 WHERE id=$1 AND (session_last_activity IS NULL OR session_last_activity < $3)`,
+      [id, at, staleBefore],
+    );
+  },
+  // Libera la sesión al cerrar sesión (solo si sigue siendo la sesión actual).
+  async clearSession(id: string, sid: string): Promise<void> {
+    await query(`UPDATE users SET current_session_id=NULL, session_last_activity=NULL WHERE id=$1 AND current_session_id=$2`, [id, sid]);
+  },
 };
 
 export const cases = {
@@ -126,6 +144,10 @@ export const cases = {
   },
   async touch(caseId: string, at: string): Promise<void> {
     await query(`UPDATE cases SET last_activity=$1 WHERE case_id=$2`, [at, caseId]);
+  },
+  // Primer caso ACTIVO (sin cerrar) de un propietario (C2: un solo caso activo por cuenta).
+  async activeByOwner(ownerUserId: string): Promise<CaseFull | undefined> {
+    return (await query<CaseFull>(`SELECT * FROM cases WHERE owner_user_id=$1 AND status='active' ORDER BY created_at LIMIT 1`, [ownerUserId])).rows[0];
   },
   async delete(id: string): Promise<void> {
     await query(`DELETE FROM cases WHERE case_id=$1`, [id]);

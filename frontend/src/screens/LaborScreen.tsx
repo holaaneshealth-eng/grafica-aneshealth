@@ -8,7 +8,7 @@ import {
 } from "../domain/labor";
 import { laborTotals } from "../domain/laborTotals";
 import { laborLaWarning, laborLaConfirmText } from "../domain/laborLaMax";
-import { hhmm, nowLocalInput, isoFromLocalInput } from "../utils/time";
+import { hhmm, dmy, nowLocalInput, isoFromLocalInput } from "../utils/time";
 import { formatNum } from "../domain/calculations";
 
 const rid = (p: string) => p + "-" + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
@@ -21,7 +21,14 @@ export function LaborScreen({ cs, onToast }: { cs: CaseState; onToast: (m: strin
   return (
     <div>
       <div className="card" style={{ borderColor: "var(--accent)" }}>
-        <h2 style={{ fontSize: 16 }}>🤰 Analgesia neuroaxial de parto · {cs.ia}</h2>
+        <h2 style={{ fontSize: 16 }}>🤰 Analgesia neuroaxial de parto</h2>
+        {/* Puede haber varias analgesias de parto activas a la vez: el nº de hoja y la hora de
+            inicio se muestran de forma MUY visible para no confundir pacientes. */}
+        <div
+          style={{ margin: "4px 0 2px", padding: "8px 12px", borderRadius: 10, background: "rgba(20,124,123,0.12)", border: "1px solid var(--accent)", fontSize: 18, fontWeight: 800, letterSpacing: 0.3 }}
+        >
+          Hoja {cs.ia} · inicio {hhmm(cs.labor.loadingDose?.at ?? cs.createdAt)} ({dmy(cs.labor.loadingDose?.at ?? cs.createdAt)})
+        </div>
         <p className="sub">Registro específico de parto. Puedes convertir a cesárea en cualquier momento.</p>
       </div>
       <TechniqueCard cs={cs} onToast={onToast} />

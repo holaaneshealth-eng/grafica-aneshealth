@@ -27,6 +27,24 @@ casesRouter.post("/", csrfGuard, async (req, res) => {
     res.status(403).json({ error: "Sin permiso para crear casos" });
     return;
   }
+  // C2: las cuentas de quirófano/endoscopias solo pueden tener un caso activo (sin cerrar) a la
+  // vez. Excepción: partos puede tener varias analgesias activas. El administrador no se limita.
+  const u = req.user!;
+  const esPartos = u.username === "partos" || (u.location ?? "").toLowerCase().includes("parto");
+  if (u.role !== "admin" && !esPartos) {
+    const activo = await cases.activeByOwner(u.id);
+    if (activo) {
+      audit({ userId: u.id, username: u.username, action: "CASE_CREATE_BLOCKED", targetType: "case", targetId: activo.ia, ip: req.ip, success: false });
+      res.status(409).json({
+        error: `Ya tienes un caso activo (${activo.ia}). Ciérralo antes de crear otro.`,
+        code: "ACTIVE_CASE_EXISTS",
+        ia: activo.ia,
+        caseId: activo.case_id,
+        createdAt: activo.created_at,
+      });
+      return;
+    }
+  }
   const parsed = createCaseSchema.safeParse(req.body ?? {});
   const caseType = parsed.success ? parsed.data.caseType ?? "quirofano" : "quirofano";
   const c = await createCase(req.user!, caseType);
