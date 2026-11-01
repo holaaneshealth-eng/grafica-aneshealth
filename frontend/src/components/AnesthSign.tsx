@@ -99,6 +99,44 @@ export function RelayModal({ cs, onClose, onDone }: { cs: CaseState; onClose: ()
   );
 }
 
+/** Elegir el anestesiólogo responsable (sin PIN). Se usa desde el aviso previo a la firma
+ *  ("Completar ahora") cuando el caso aún no tiene responsable. */
+export function ResponsibleModal({ cs, onClose, onDone }: { cs: CaseState; onClose: () => void; onDone: (m: string) => void }) {
+  const list = useStore((s) => s.anesthesiologists);
+  const append = useStore((s) => s.append);
+  const [sel, setSel] = useState("");
+
+  function save() {
+    const a = list.find((x) => x.id === sel);
+    if (!a) return;
+    append(cs.caseId, "RESPONSIBLE_SET", { anesthesiologistId: a.id, name: a.full_name, colegiado: a.colegiado, title: a.title });
+    onDone(`Responsable: ${a.full_name}`);
+    onClose();
+  }
+
+  return (
+    <Modal title="Anestesiólogo responsable" onClose={onClose}>
+      <p className="sub" style={{ marginTop: 0 }}>Elige el anestesiólogo responsable del caso (sin PIN, solo selección).</p>
+      {list.length === 0 ? (
+        <div className="alert danger">No hay anestesiólogos dados de alta. El administrador debe crearlos en Admin.</div>
+      ) : (
+        <>
+          <div className="field">
+            <label>Responsable</label>
+            <select value={sel} onChange={(e) => setSel(e.target.value)}>
+              <option value="">— elige —</option>
+              {list.map((a) => (
+                <option key={a.id} value={a.id}>{fmtRef(a.title, a.full_name, a.colegiado)}</option>
+              ))}
+            </select>
+          </div>
+          <button className="btn primary block lg" onClick={save} disabled={!sel}>Guardar responsable</button>
+        </>
+      )}
+    </Modal>
+  );
+}
+
 export interface SignResult { signedBy: string; colegiado: string; title: string }
 
 /** Firma: elegir anestesiólogo + PIN. Gestiona el cambio de PIN provisional y el bloqueo. */

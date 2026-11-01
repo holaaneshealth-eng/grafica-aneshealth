@@ -13,7 +13,7 @@ import { formatNum } from "../domain/calculations";
 import { techniqueDetailLines } from "../domain/techniqueRender";
 import { WHO_PHASES } from "../domain/clinical";
 import { AnesthesiaEndModal } from "../components/AnesthesiaEndModal";
-import { SignModal, type SignResult } from "../components/AnesthSign";
+import { SignModal, ResponsibleModal, type SignResult } from "../components/AnesthSign";
 import { positionById, consciousnessLabel, airwayLabel, oxygenLabel, destinationLabel, bromageLabel, tofLabel, PROTECTION_MEASURES } from "../domain/positions";
 import { laborTotals } from "../domain/laborTotals";
 import { deliveryLabel, instrumentalLabel, LABOR_COMPLICATIONS } from "../domain/labor";
@@ -45,6 +45,7 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
   const [showSignWarn, setShowSignWarn] = useState(false); // aviso al firmar con datos esenciales incompletos
   const [missingEssential, setMissingEssential] = useState<string[]>([]);
   const [showSignModal, setShowSignModal] = useState(false); // modal de firma (anestesiólogo + PIN)
+  const [showResponsibleModal, setShowResponsibleModal] = useState(false); // elegir responsable desde el aviso
   const [showEndModal, setShowEndModal] = useState(false);
 
   // La tabla seriada excluye las constantes que ya se representan en la gráfica.
@@ -669,6 +670,7 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
         </div>
       </div>
 
+      {showResponsibleModal && <ResponsibleModal cs={cs} onClose={() => setShowResponsibleModal(false)} onDone={onToast} />}
       {showSignModal && <SignModal cs={cs} onClose={() => setShowSignModal(false)} onSigned={onSigned} />}
       {showEndModal && <AnesthesiaEndModal cs={cs} onClose={() => setShowEndModal(false)} onDone={onToast} />}
       {showSignWarn && (
@@ -685,7 +687,14 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
               ))}
             </ul>
             <div className="grid2" style={{ marginTop: 8 }}>
-              <button className="btn primary lg" onClick={() => setShowSignWarn(false)}>
+              <button
+                className="btn primary lg"
+                onClick={() => {
+                  setShowSignWarn(false);
+                  // "Completar ahora" lleva a elegir el responsable si es lo que falta.
+                  if (!cs.responsible) setShowResponsibleModal(true);
+                }}
+              >
                 Completar ahora
               </button>
               <button className="btn lg" onClick={() => { setShowSignWarn(false); openSign(); }}>
@@ -764,6 +773,7 @@ export function Summary({ cs, onToast, canSign, canReopen }: Props) {
 // "Firmar igualmente"). En casos de parto se exige además la lectura final de la bomba y el cierre.
 function missingEssentials(cs: CaseState): string[] {
   const m: string[] = [];
+  if (!cs.responsible) m.push("Sin anestesiólogo responsable");
   const hasV = (code: string) => cs.vitals.some((v) => v.values[code] != null);
   const vTA = hasV("TAS") || hasV("TAD") || hasV("TAM") || hasV("PAIS") || hasV("PAIM") || hasV("PAID");
   const vFC = hasV("FC");
