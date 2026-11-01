@@ -143,9 +143,21 @@ export function renderDataPage(doc: jsPDF, cs: CaseState): void {
   // ---- Técnicas ----
   if (cs.techniques.length > 0) {
     L.heading("Técnicas anestésicas");
+    const norm = (r?: string) => (r && r.trim() ? r.trim() : "");
+    const infMeds = cs.boluses.filter((b) => norm(b.route) === "Infiltración");
+    let infShown = false;
     cs.techniques.forEach((t) => {
       const det = techniqueDetailLines(t).join(" | ");
       L.timeRow(hhmm(t.at), det ? `${t.label} — ${det}` : t.label);
+      // Anestesia local: listar los anestésicos locales infiltrados (una sola vez).
+      if (t.type === "local" && !infShown && infMeds.length > 0) {
+        infMeds.forEach((b) => {
+          const cv = b.concentration && b.volumeMl ? ` · ${formatNum(b.concentration)} % · ${formatNum(b.volumeMl)} ml` : "";
+          const adr = b.adrenaline ? " · con adrenalina" : "";
+          L.timeRow(hhmm(b.at), `· ${b.drug} ${formatNum(b.dose)} ${b.unit}${cv}${adr}`);
+        });
+        infShown = true;
+      }
     });
   }
 

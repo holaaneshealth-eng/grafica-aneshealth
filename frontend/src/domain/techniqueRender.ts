@@ -31,6 +31,16 @@ export function techniqueDetailLines(t: TechniqueRecord): string[] {
     seen.add("maskSize");
   }
 
+  // "Anestesia local": quién infiltra (si es «Otro», con el texto libre).
+  if (t.type === "local") {
+    const d = t.details as Record<string, unknown>;
+    const who = String(d.infiltrador ?? "").trim();
+    const other = String(d.infiltradorOtro ?? "").trim();
+    if (who) lines.push(`Infiltra: ${/^otro$/i.test(who) ? other || "Otro" : who}`);
+    seen.add("infiltrador");
+    seen.add("infiltradorOtro");
+  }
+
   const emit = (field: TechniqueField | undefined, value: unknown) => {
     const type = field?.type ?? "text";
     const label = field?.label ?? "";

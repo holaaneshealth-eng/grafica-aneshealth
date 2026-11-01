@@ -8,6 +8,7 @@ import { MedicationTimeline } from "../components/MedicationTimeline";
 import { BloodProductModal } from "../components/BloodProductModal";
 import { LabModal } from "../components/LabModal";
 import { VitalsModal } from "../components/VitalsModal";
+import { DrugModal } from "../components/DrugModal";
 import { MonitorCapture } from "../components/MonitorCapture";
 import { PositionProtectionSection } from "../components/PositionProtectionSection";
 import { AnesthesiaEndModal } from "../components/AnesthesiaEndModal";
@@ -263,6 +264,7 @@ function TechniqueSection({ cs }: { cs: CaseState }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, string | boolean | number>>({});
   const [techTime, setTechTime] = useState(nowLocalInput());
+  const [medsOpen, setMedsOpen] = useState(false); // registro de anestésicos locales (anestesia local)
 
   function saveTechnique(id: string) {
     const def = techniqueById(id);
@@ -336,10 +338,24 @@ function TechniqueSection({ cs }: { cs: CaseState }) {
           {techniqueById(openId)!.fields.map((f) => (
             <FieldInput key={f.key} field={f} value={details[f.key]} onChange={(v) => setDetails((d) => ({ ...d, [f.key]: v }))} />
           ))}
-          <button className="btn primary block" onClick={() => saveTechnique(openId)}>
+          {openId === "local" && (
+            <>
+              <button className="btn block" style={{ marginTop: 4 }} onClick={() => setMedsOpen(true)}>
+                Medicación utilizada (anestésico local)
+              </button>
+              <p className="sub" style={{ margin: "6px 0 0" }}>
+                Abre el registro de fármaco con los anestésicos locales (vía «Infiltración»). El bolo aparece en la gráfica, suma en el Total y cuenta en el aviso de dosis máxima.
+              </p>
+            </>
+          )}
+          <button className="btn primary block" style={{ marginTop: 10 }} onClick={() => saveTechnique(openId)}>
             Añadir técnica
           </button>
         </div>
+      )}
+
+      {medsOpen && (
+        <DrugModal cs={cs} initialRoute="Infiltración" onlyLocal onClose={() => setMedsOpen(false)} onDone={() => setMedsOpen(false)} />
       )}
     </div>
   );
@@ -564,7 +580,7 @@ function RecordSection({ cs, onToast }: { cs: CaseState; onToast?: (m: string) =
       <div className="card">
         <h2>Respirador</h2>
         <p className="sub">
-          Modo ventilatorio y parámetros (VT, FR, PEEP, FiO₂ fijados; presión pico, EtCO₂, CAM medidos). En la gráfica, los fijados se muestran al inicio y en cada cambio.
+          Modo ventilatorio y parámetros (VT, FR, PEEP, FiO₂, gafas nasales fijados; presión pico, EtCO₂, CAM medidos). En la gráfica, los fijados se muestran al inicio y en cada cambio.
           {currentVentMode ? ` Modo actual: ${currentVentMode}.` : ""}
         </p>
         <div className="section-title" style={{ margin: "4px 0 6px" }}>Modo ventilatorio</div>

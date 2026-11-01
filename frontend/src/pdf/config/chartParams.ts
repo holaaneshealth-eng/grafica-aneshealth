@@ -16,7 +16,7 @@ export function isIbpCode(code: string): boolean {
 
 // Banda 2, parámetros FIJADOS por el anestesiólogo (cifra al inicio y en cambios).
 export const VENTMODE_CODE = "VENTMODE";
-export const FIXED_CODES = ["VT", "FR", "PEEP", "FIO2", VENTMODE_CODE];
+export const FIXED_CODES = ["VT", "FR", "PEEP", "FIO2", "O2GN", VENTMODE_CODE];
 
 export function isHemoCode(code: string): boolean {
   return HEMO_CODES.includes(code);
