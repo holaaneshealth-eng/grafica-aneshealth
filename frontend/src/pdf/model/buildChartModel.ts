@@ -28,6 +28,14 @@ export function prettyUnit(u: string): string {
 
 const FIXED_UNIT: Record<string, string> = { VT: "ml", FR: "rpm", PEEP: "cmH₂O", FIO2: "%", O2GN: "L/min" };
 
+/** ¿El nombre del fármaco ya contiene la vía? (p. ej. "Lidocaína infiltración" ya trae
+ *  "Infiltración", "Bupivacaína epidural" ya trae "Epidural"). Compara sin tildes ni mayúsculas. */
+function nameIncludesRoute(drug: string, route: string): boolean {
+  const strip = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  const r = strip(route);
+  return r.length > 0 && strip(drug).includes(r);
+}
+
 interface Seg {
   from: number;
   to: number | null;
@@ -272,8 +280,9 @@ export function buildChartModel(cs: CaseState, opts: BuildOptions = {}): ChartMo
     parts.push(...extraTotals);
     const total = parts.length ? { text: parts.join(" · ") } : null;
 
-    // La etiqueta de la fila incluye la vía (p. ej. "Fentanilo intradural (µg)").
-    const name = route ? `${drug} ${route}` : drug;
+    // La etiqueta de la fila incluye la vía (p. ej. "Fentanilo intradural (µg)"), salvo
+    // que el nombre del fármaco ya la contenga (evita "Lidocaína infiltración Infiltración").
+    const name = route && !nameIncludesRoute(drug, route) ? `${drug} ${route}` : drug;
     return { name, unit: rowUnit, boluses, infusions, total };
   });
 
