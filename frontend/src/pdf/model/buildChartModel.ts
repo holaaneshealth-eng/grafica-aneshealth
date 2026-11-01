@@ -26,7 +26,7 @@ export function prettyUnit(u: string): string {
   return (u || "").replace(/mcg/g, "µg");
 }
 
-const FIXED_UNIT: Record<string, string> = { VT: "ml", FR: "rpm", PEEP: "cmH₂O", FIO2: "%" };
+const FIXED_UNIT: Record<string, string> = { VT: "ml", FR: "rpm", PEEP: "cmH₂O", FIO2: "%", O2GN: "L/min" };
 
 interface Seg {
   from: number;
@@ -178,7 +178,7 @@ export function buildChartModel(cs: CaseState, opts: BuildOptions = {}): ChartMo
   }
 
   const fixedRows: FixedRow[] = [];
-  for (const code of ["VT", "FR", "PEEP", "FIO2"]) {
+  for (const code of ["VT", "FR", "PEEP", "FIO2", "O2GN"]) {
     if (!presentCodes.has(code)) continue;
     const param = findParam(code, cs.monitoring.custom);
     const unit = FIXED_UNIT[code] ?? prettyUnit(param?.unit ?? "");

@@ -102,6 +102,13 @@ export const DRUGS: DrugDef[] = [
   { name: "Mepivacaína bloqueo", group: "Bloqueo/infiltración", defaultUnit: "mg", concVol: true, defaultRoute: "Perineural" },
   { name: "Lidocaína subcutánea", group: "Anestésico local", defaultUnit: "mg", commonBolus: [20, 40, 100] },
 
+  // Anestésicos locales para infiltración (anestesia local): concentración % + volumen ml → mg, vía "Infiltración"
+  { name: "Lidocaína infiltración", group: "Bloqueo/infiltración", defaultUnit: "mg", concVol: true, defaultRoute: "Infiltración" },
+  { name: "Mepivacaína infiltración", group: "Bloqueo/infiltración", defaultUnit: "mg", concVol: true, defaultRoute: "Infiltración" },
+  { name: "Bupivacaína infiltración", group: "Bloqueo/infiltración", defaultUnit: "mg", concVol: true, defaultRoute: "Infiltración" },
+  { name: "Ropivacaína infiltración", group: "Bloqueo/infiltración", defaultUnit: "mg", concVol: true, defaultRoute: "Infiltración" },
+  { name: "Levobupivacaína infiltración", group: "Bloqueo/infiltración", defaultUnit: "mg", concVol: true, defaultRoute: "Infiltración" },
+
   // Anestésicos locales neuroaxiales (piden concentración % y volumen ml)
   { name: "Bupivacaína hiperbara intradural", group: "Neuroaxial", defaultUnit: "mg", concVol: true },
   { name: "Bupivacaína intradural", group: "Neuroaxial", defaultUnit: "mg", concVol: true },

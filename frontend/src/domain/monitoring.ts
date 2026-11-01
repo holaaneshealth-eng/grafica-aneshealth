@@ -32,6 +32,7 @@ export const STANDARD_PARAMS: MonitoringParam[] = [
   { code: "FR", label: "Frec. respiratoria", unit: "rpm", group: "resp", min: 0, max: 60, chart: true, color: "#4ade80" },
   { code: "ETCO2", label: "ETCO₂", unit: "mmHg", group: "resp", min: 0, max: 100, chart: true, color: "#2dd4bf" },
   { code: "FIO2", label: "FiO₂", unit: "%", group: "resp", min: 21, max: 100, chart: true, color: "#818cf8" },
+  { code: "O2GN", label: "O2 gafas nasales", unit: "L/min", group: "resp", min: 0, max: 15, chart: true, color: "#22d3ee" },
   { code: "CAM", label: "CAM", unit: "", group: "resp", min: 0, max: 3, chart: true, color: "#fca5a5" },
 ];
 
@@ -46,6 +47,6 @@ export function paramsByGroup(group: ParamGroup, custom: MonitoringParam[] = [])
   return std;
 }
 
-// Códigos del respirador que son "fijados" (modo + VT/FR/PEEP/FiO2) y "medidos" (resto).
-export const RESP_FIXED_CODES = ["VT", "FR", "PEEP", "FIO2"]; // + VENTMODE (modo, aparte)
+// Códigos del respirador que son "fijados" (modo + VT/FR/PEEP/FiO2 + gafas nasales) y "medidos" (resto).
+export const RESP_FIXED_CODES = ["VT", "FR", "PEEP", "FIO2", "O2GN"]; // + VENTMODE (modo, aparte)
 export const RESP_MEASURED_CODES = ["PPICO", "ETCO2", "CAM"];

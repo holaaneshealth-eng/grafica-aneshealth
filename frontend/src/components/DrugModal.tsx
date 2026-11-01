@@ -27,6 +27,10 @@ interface Props {
   cs: CaseState;
   onClose: () => void;
   onDone: (msg: string) => void;
+  /** Vía preseleccionada al abrir (p. ej. "Infiltración" desde Anestesia local). */
+  initialRoute?: string;
+  /** Limita el catálogo a los anestésicos locales (medicación de la anestesia local). */
+  onlyLocal?: boolean;
 }
 
 type Mode = "bolus" | "infusion" | "plantillas" | "pediatrica";
@@ -36,9 +40,9 @@ const RATE_UNITS = ["ml/h", "mcg/kg/min", "mcg/kg/h", "mg/kg/h", "mg/kg/min", "T
 const FLUID_VOLUME = 500;
 // Vías de administración. Cada vía va en su propia fila en la gráfica.
 const OTHER_ROUTE = "Otra…"; // permite escribir la vía en texto libre
-const ROUTES = ["IV", "Intradural", "Epidural", "Perineural", "Interfascial", "IM", "Subcutánea", "Inhalatoria", "Tópica", "Intranasal", "Oral", OTHER_ROUTE];
+const ROUTES = ["IV", "Intradural", "Epidural", "Perineural", "Interfascial", "Infiltración", "IM", "Subcutánea", "Inhalatoria", "Tópica", "Intranasal", "Oral", OTHER_ROUTE];
 
-export function DrugModal({ cs, onClose, onDone }: Props) {
+export function DrugModal({ cs, onClose, onDone, initialRoute, onlyLocal = false }: Props) {
   const append = useStore((s) => s.append);
   const addCustomDrug = useStore((s) => s.addCustomDrug);
   const customDrugs = useStore((s) => s.customDrugs); // repinta los chips al añadir uno nuevo
@@ -49,7 +53,7 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
   // Bolus
   const [dose, setDose] = useState("");
   const [unit, setUnit] = useState("mg");
-  const [route, setRoute] = useState("IV"); // vía de administración (bolo/perfusión)
+  const [route, setRoute] = useState(initialRoute ?? "IV"); // vía de administración (bolo/perfusión)
   const [routeOther, setRouteOther] = useState(""); // vía en texto libre cuando route = "Otra…"
   const [withAdr, setWithAdr] = useState(false); // anestésico local administrado con adrenalina
   const [conc, setConc] = useState(""); // neuroaxial %
@@ -210,13 +214,14 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
     const uniq: string[] = [];
     for (const e of evs) if (!uniq.includes(e.n)) uniq.push(e.n);
     return uniq
+      .filter((n) => !onlyLocal || !!localAnestheticMax(n))
       .filter((n) => {
         const d = drugByName(n);
         if (!d) return true;
         return mode === "bolus" ? !d.gas && !d.fluid : d.infusionDoseUnit || d.gas || d.fluid;
       })
       .slice(0, 6);
-  }, [cs.boluses, cs.infusions, mode]);
+  }, [cs.boluses, cs.infusions, mode, onlyLocal]);
 
   // Última dosis de este fármaco (para re-dosis en un toque).
   const lastBolus = useMemo(() => {
@@ -240,7 +245,7 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
       // anestésicos locales con conc./volumen; si no, IV.
       if (d.defaultRoute) setRoute(d.defaultRoute);
       else if (d.concVol) setRoute(inferRoute(name) ?? "Intradural");
-      else if (!d.gas && !d.fluid) setRoute("IV");
+      else if (!d.gas && !d.fluid && !onlyLocal) setRoute("IV");
     }
     setWithAdr(false);
     const running = cs.infusions.find((i) => i.active && i.drug.trim().toLowerCase() === name.trim().toLowerCase());
@@ -469,8 +474,11 @@ export function DrugModal({ cs, onClose, onDone }: Props) {
 
   const showChangeMode = mode === "infusion" && !!activeInf;
   const chipDrugs = useMemo(
-    () => (mode === "plantillas" || mode === "pediatrica" ? [] : drugsForMode(mode)),
-    [mode, customDrugs],
+    () =>
+      mode === "plantillas" || mode === "pediatrica"
+        ? []
+        : drugsForMode(mode).filter((d) => !onlyLocal || !!localAnestheticMax(d.name)),
+    [mode, customDrugs, onlyLocal],
   );
 
   return (

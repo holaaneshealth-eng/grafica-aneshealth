@@ -63,6 +63,7 @@ export const TECHNIQUES: TechniqueDef[] = [
   { id: "combinada", label: "Combinada intradural-epidural", fields: neuraxialFields() },
   { id: "bloqueo_periferico", label: "Bloqueo nervioso periférico", fields: blockFields() },
   { id: "bloqueo_interfascial", label: "Bloqueo interfascial", fields: blockFields() },
+  { id: "local", label: "Anestesia local", fields: localFields() },
 ];
 
 function intubationFields(): TechniqueField[] {
@@ -100,6 +101,18 @@ function blockFields(): TechniqueField[] {
     { key: "volume", label: "Volumen", type: "number", unit: "ml" },
     { key: "concentration", label: "Concentración", type: "number", unit: "%" },
     { key: "adjuvants", label: "Adyuvantes", type: "text" },
+  ];
+}
+
+// Anestesia local por infiltración. Combinable con otras técnicas (p. ej. local + sedación).
+// La medicación (anestésicos locales) se registra como bolo normal desde el propio paso,
+// con la vía "Infiltración": aparece en la gráfica, suma en el Total y cuenta en el aviso de
+// dosis máxima de anestésicos locales (sea quien sea quien infiltra).
+function localFields(): TechniqueField[] {
+  return [
+    { key: "infiltrador", label: "Quién infiltra", type: "select", options: ["Cirujano", "Anestesiólogo", "Otro"] },
+    { key: "infiltradorOtro", label: "Especificar (si es «Otro»)", type: "text" },
+    { key: "notes", label: "Observaciones", type: "text" },
   ];
 }
 
