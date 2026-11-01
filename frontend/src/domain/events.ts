@@ -60,7 +60,18 @@ export type EventType =
   | "CASE_REOPENED"
   | "CASE_SIGNED"
   | "SHEET_EMAILED"
+  | "RESPONSIBLE_SET"
+  | "RESPONSIBLE_RELAY"
   | "EVENT_VOIDED";
+
+// Anestesiólogo responsable del caso (sin PIN, solo selección) y relevos.
+export interface ResponsibleRef {
+  anesthesiologistId?: string;
+  name: string;
+  colegiado?: string;
+  title?: string;
+  at: string;
+}
 
 export interface BaseEvent {
   eventId: string;
@@ -399,6 +410,11 @@ export interface CaseState {
   endedAt?: string | null;
   signedAt?: string | null;
   signedBy?: string | null;
+  signedColegiado?: string | null;
+  signedTitle?: string | null;
+  // Anestesiólogo responsable (al iniciar el caso) y relevos (cambios durante el caso).
+  responsible?: ResponsibleRef | null;
+  relays: ResponsibleRef[];
 }
 
 export function emptyCaseState(caseId: string, ia: string, year: number, ordinal: number, createdAt: string): CaseState {
@@ -446,5 +462,9 @@ export function emptyCaseState(caseId: string, ia: string, year: number, ordinal
     endedAt: null,
     signedAt: null,
     signedBy: null,
+    signedColegiado: null,
+    signedTitle: null,
+    responsible: null,
+    relays: [],
   };
 }

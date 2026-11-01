@@ -80,6 +80,23 @@ export function validatePasswordStrength(pw: string): string | null {
   return null;
 }
 
+/** Politica del PIN personal del anestesiologo: 4 a 6 cifras. */
+export function validatePin(pin: string): string | null {
+  if (!/^\d{4,6}$/.test(pin)) return "El PIN debe tener entre 4 y 6 cifras.";
+  return null;
+}
+
+/** PIN provisional aleatorio de 6 cifras (lo genera el administrador). */
+export function generatePin(): string {
+  let s = "";
+  for (let i = 0; i < 6; i++) s += String(crypto.randomInt(10));
+  return s;
+}
+
+/** Cifra/verifica el PIN con el mismo mecanismo que las contrasenas (bcrypt). */
+export const hashPin = hashPassword;
+export const verifyPin = verifyPassword;
+
 /** Contrasena aleatoria fuerte y legible para el seed inicial. */
 export function generatePassword(): string {
   const lower = "abcdefghijkmnpqrstuvwxyz";

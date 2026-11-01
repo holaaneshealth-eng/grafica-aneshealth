@@ -202,6 +202,98 @@ export const auditRepo = {
   },
 };
 
+export interface AnesthesiologistRow {
+  id: string;
+  full_name: string;
+  colegiado: string;
+  title: string;
+  active: number;
+  pin_hash: string | null;
+  must_change_pin: number;
+  failed_attempts: number;
+  locked_until: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Vista para el administrador (sin el hash del PIN).
+export interface AnesthesiologistAdminRow {
+  id: string;
+  full_name: string;
+  colegiado: string;
+  title: string;
+  active: number;
+  must_change_pin: number;
+  locked_until: string | null;
+  created_at: string;
+}
+
+// Vista para selección (firma / responsable): solo los activos y lo imprescindible.
+export interface AnesthesiologistSelectable {
+  id: string;
+  full_name: string;
+  colegiado: string;
+  title: string;
+}
+
+export const anesthesiologists = {
+  async all(): Promise<AnesthesiologistAdminRow[]> {
+    return (
+      await query<AnesthesiologistAdminRow>(
+        `SELECT id, full_name, colegiado, title, active, must_change_pin, locked_until, created_at
+         FROM anesthesiologists ORDER BY active DESC, full_name`,
+      )
+    ).rows;
+  },
+  async selectable(): Promise<AnesthesiologistSelectable[]> {
+    return (
+      await query<AnesthesiologistSelectable>(
+        `SELECT id, full_name, colegiado, title FROM anesthesiologists WHERE active=1 ORDER BY full_name`,
+      )
+    ).rows;
+  },
+  async byId(id: string): Promise<AnesthesiologistRow | undefined> {
+    return (await query<AnesthesiologistRow>(`SELECT * FROM anesthesiologists WHERE id=$1`, [id])).rows[0];
+  },
+  async insert(a: { id: string; fullName: string; colegiado: string; title: string; pinHash: string; createdAt: string }): Promise<void> {
+    await query(
+      `INSERT INTO anesthesiologists (id, full_name, colegiado, title, active, pin_hash, must_change_pin, failed_attempts, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,1,$5,1,0,$6,$6)`,
+      [a.id, a.fullName, a.colegiado, a.title, a.pinHash, a.createdAt],
+    );
+  },
+  async update(id: string, fields: { fullName?: string; colegiado?: string; title?: string }): Promise<void> {
+    await query(
+      `UPDATE anesthesiologists
+       SET full_name=COALESCE($2, full_name), colegiado=COALESCE($3, colegiado), title=COALESCE($4, title), updated_at=$5
+       WHERE id=$1`,
+      [id, fields.fullName ?? null, fields.colegiado ?? null, fields.title ?? null, new Date().toISOString()],
+    );
+  },
+  async setActive(id: string, active: number): Promise<void> {
+    await query(`UPDATE anesthesiologists SET active=$2, updated_at=$3 WHERE id=$1`, [id, active, new Date().toISOString()]);
+  },
+  // Fija un PIN nuevo (provisional del admin o cambiado por el propio anestesiólogo) y
+  // desbloquea la cuenta. `mustChange`=1 para el PIN provisional; 0 tras cambiarlo.
+  async setPin(id: string, pinHash: string, mustChange: number): Promise<void> {
+    await query(
+      `UPDATE anesthesiologists SET pin_hash=$2, must_change_pin=$3, failed_attempts=0, locked_until=NULL, updated_at=$4 WHERE id=$1`,
+      [id, pinHash, mustChange, new Date().toISOString()],
+    );
+  },
+  async recordPinFailure(id: string, attempts: number, lockedUntil: string | null): Promise<void> {
+    await query(`UPDATE anesthesiologists SET failed_attempts=$2, locked_until=$3, updated_at=$4 WHERE id=$1`, [
+      id,
+      attempts,
+      lockedUntil,
+      new Date().toISOString(),
+    ]);
+  },
+  async recordPinSuccess(id: string): Promise<void> {
+    await query(`UPDATE anesthesiologists SET failed_attempts=0, locked_until=NULL, updated_at=$2 WHERE id=$1`, [id, new Date().toISOString()]);
+  },
+};
+
 export interface CustomDrugRow {
   id: string;
   name: string;

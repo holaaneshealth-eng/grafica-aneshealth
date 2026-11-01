@@ -265,7 +265,38 @@ function applyEvent(state: CaseState, e: BaseEvent): CaseState {
     case "CASE_REOPENED":
       return { ...state, phase: "OR", endedAt: null };
     case "CASE_SIGNED":
-      return { ...state, signedAt: e.occurredAt, signedBy: p.signedBy as string };
+      return {
+        ...state,
+        signedAt: e.occurredAt,
+        signedBy: p.signedBy as string,
+        signedColegiado: (p.colegiado as string) ?? null,
+        signedTitle: (p.title as string) ?? null,
+      };
+    case "RESPONSIBLE_SET":
+      return {
+        ...state,
+        responsible: {
+          anesthesiologistId: p.anesthesiologistId as string | undefined,
+          name: p.name as string,
+          colegiado: p.colegiado as string | undefined,
+          title: p.title as string | undefined,
+          at: e.occurredAt,
+        },
+      };
+    case "RESPONSIBLE_RELAY":
+      return {
+        ...state,
+        relays: [
+          ...state.relays,
+          {
+            anesthesiologistId: p.anesthesiologistId as string | undefined,
+            name: p.name as string,
+            colegiado: p.colegiado as string | undefined,
+            title: p.title as string | undefined,
+            at: e.occurredAt,
+          },
+        ],
+      };
     default:
       return state;
   }
@@ -399,6 +430,12 @@ export function buildTimeline(events: BaseEvent[]): TimelineItem[] {
         break;
       case "CASE_SIGNED":
         items.push({ id: e.eventId, at: e.occurredAt, kind: "case", label: "Hoja firmada", detail: p.signedBy as string });
+        break;
+      case "RESPONSIBLE_SET":
+        items.push({ id: e.eventId, at: e.occurredAt, kind: "case", label: "Anestesiólogo responsable", detail: p.name as string });
+        break;
+      case "RESPONSIBLE_RELAY":
+        items.push({ id: e.eventId, at: e.occurredAt, kind: "case", label: "Relevo de anestesiólogo", detail: p.name as string });
         break;
       default:
         break;

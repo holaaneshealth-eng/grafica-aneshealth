@@ -11,11 +11,12 @@ import { LaborScreen } from "./screens/LaborScreen";
 import { DrugModal } from "./components/DrugModal";
 import { VitalsModal } from "./components/VitalsModal";
 import { IncidentModal } from "./components/IncidentModal";
+import { RelayModal } from "./components/AnesthSign";
 import { TimeField } from "./components/TimeField";
 import { hhmmss, nowLocalInput, isoFromLocalInput } from "./utils/time";
 import { matchAntibiotic } from "./domain/clinical";
 
-type Modal = null | "drug" | "vitals" | "incident";
+type Modal = null | "drug" | "vitals" | "incident" | "relay";
 const INACTIVITY_MS = 30 * 60 * 1000; // cierre de sesion por inactividad
 
 export default function App() {
@@ -113,7 +114,8 @@ export default function App() {
 
   const activeCase = cases.find((c) => c.caseId === activeCaseId);
   const writable = activeCaseId ? canWrite(activeCaseId) : false;
-  const canSign = !!activeCase && (user.role === "admin" || (activeCase.ownerUserId === user.id && activeCase.status !== "signed"));
+  // La cuenta de administrador NO puede firmar; firma el propietario del caso (con PIN del anestesiólogo).
+  const canSign = !!activeCase && user.role !== "admin" && activeCase.ownerUserId === user.id && activeCase.status !== "signed";
   const canReopen = !!activeCase && activeCase.status === "closed" && (user.role === "admin" || activeCase.ownerUserId === user.id);
   const showEditingFlow = cs && writable && cs.phase !== "CLOSED";
   // Analgesia de parto en curso (aún no convertida a cesárea): flujo propio.
@@ -304,6 +306,9 @@ export default function App() {
           <button className="btn danger" onClick={() => setModal("incident")}>
             Incidencia
           </button>
+          <button className="btn" onClick={() => setModal("relay")}>
+            Relevo
+          </button>
         </nav>
       )}
 
@@ -320,6 +325,7 @@ export default function App() {
         />
       )}
       {cs && modal === "incident" && <IncidentModal cs={cs} onClose={() => setModal(null)} onDone={showToast} />}
+      {cs && modal === "relay" && <RelayModal cs={cs} onClose={() => setModal(null)} onDone={showToast} />}
 
       {cs && entradaPrompt && (
         <div className="modal-backdrop" onClick={() => setEntradaPrompt(false)}>

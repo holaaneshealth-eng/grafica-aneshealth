@@ -6,7 +6,7 @@ import cors from "cors";
 import compression from "compression";
 import cookieParser from "cookie-parser";
 import { config } from "./config";
-import { migrate, migrateCasePhotos, migrateCustomDrugs, migrateLabor } from "./db";
+import { migrate, migrateCasePhotos, migrateCustomDrugs, migrateLabor, migrateAnesthesiologists } from "./db";
 import { seedUsers, resetAdminIfRequested } from "./seed";
 import { startRetentionJob } from "./retention";
 import { globalLimiter, notFound, errorHandler } from "./middleware";
@@ -18,6 +18,7 @@ import { mailRouter } from "./routes/mail.routes";
 import { visionRouter } from "./routes/vision.routes";
 import { customDrugsRouter } from "./routes/customDrugs.routes";
 import { settingsRouter } from "./routes/settings.routes";
+import { anesthesiologistsRouter } from "./routes/anesthesiologists.routes";
 
 // Red de seguridad: registrar (no matar el proceso) ante promesas rechazadas sin capturar.
 process.on("unhandledRejection", (reason) => {
@@ -30,6 +31,7 @@ async function main(): Promise<void> {
   await migrateCasePhotos(); // no fatal: si falla, la Vía 1 queda desactivada
   await migrateCustomDrugs(); // no fatal: si falla, se usa solo el catálogo fijo
   await migrateLabor(); // no fatal: si falla, la Analgesia de parto queda desactivada
+  await migrateAnesthesiologists(); // no fatal: si falla, la firma personal queda desactivada
   await seedUsers();
   await resetAdminIfRequested();
   startRetentionJob();
@@ -81,6 +83,7 @@ async function main(): Promise<void> {
   app.use("/api/vision", visionRouter);
   app.use("/api/custom-drugs", customDrugsRouter);
   app.use("/api/settings", settingsRouter);
+  app.use("/api/anesthesiologists", anesthesiologistsRouter);
   app.use("/api", notFound);
 
   // Servir el frontend compilado (SPA) desde el mismo origen.

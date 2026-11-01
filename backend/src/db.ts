@@ -150,7 +150,7 @@ export async function migrate(): Promise<void> {
 // Estado de funciones opcionales que dependen de una migración que puede fallar sin
 // tumbar el servidor. `photos` controla la Vía 1 (fotos del monitor); `customDrugs`,
 // el catálogo compartido de fármacos añadidos a mano.
-export const dbFeatures = { photos: false, customDrugs: false, labor: false };
+export const dbFeatures = { photos: false, customDrugs: false, labor: false, anesthesiologists: false };
 
 // Esquema de la tabla de fotos del monitor (Vía 1). Idempotente (IF NOT EXISTS).
 // Se migra APARTE y de forma NO fatal: si falla, el servidor arranca igualmente y la
@@ -236,6 +236,39 @@ export async function migrateLabor(): Promise<void> {
     dbFeatures.labor = false;
     // eslint-disable-next-line no-console
     console.error("[db] no se pudieron crear las columnas de parto/app_settings; la Analgesia de parto queda DESACTIVADA:", (err as Error).message);
+  }
+}
+
+// Lista de anestesiólogos con firma personal (nombre, nº colegiado, PIN cifrado).
+// Es una entidad INDEPENDIENTE de las cuentas de acceso (quirófano/partos/...). Se migra
+// APARTE y de forma NO fatal (como case_photos): si falla, el servidor arranca igualmente y
+// la firma personal queda desactivada (dbFeatures.anesthesiologists = false).
+const ANESTHESIOLOGISTS_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS anesthesiologists (
+    id TEXT PRIMARY KEY,
+    full_name TEXT NOT NULL,
+    colegiado TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT 'Dr./Dra.',
+    active INTEGER NOT NULL DEFAULT 1,
+    pin_hash TEXT,
+    must_change_pin INTEGER NOT NULL DEFAULT 1,
+    failed_attempts INTEGER NOT NULL DEFAULT 0,
+    locked_until TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+`;
+
+export async function migrateAnesthesiologists(): Promise<void> {
+  try {
+    await pool.query(ANESTHESIOLOGISTS_SCHEMA);
+    dbFeatures.anesthesiologists = true;
+    // eslint-disable-next-line no-console
+    console.log("[db] tabla anesthesiologists lista (firma personal activada).");
+  } catch (err) {
+    dbFeatures.anesthesiologists = false;
+    // eslint-disable-next-line no-console
+    console.error("[db] no se pudo crear anesthesiologists; la firma personal queda DESACTIVADA:", (err as Error).message);
   }
 }
 

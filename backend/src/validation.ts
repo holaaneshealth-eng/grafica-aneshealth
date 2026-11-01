@@ -64,6 +64,8 @@ export const APPENDABLE_EVENT_TYPES = [
   "CASE_REOPENED",
   "CASE_SIGNED",
   "SHEET_EMAILED",
+  "RESPONSIBLE_SET",
+  "RESPONSIBLE_RELAY",
 ] as const;
 
 export const appendEventSchema = z.object({
@@ -114,4 +116,29 @@ export const createCustomDrugSchema = z.object({
   commonBolus: z.array(z.number()).max(16).optional(),
   infusionDoseUnit: z.string().max(24).optional(),
   concVol: z.boolean().optional(),
+});
+
+// ---- Firma personal: anestesiólogos ----
+const TITLE = z.enum(["Dr.", "Dra.", "Dr./Dra."]);
+
+export const createAnesthesiologistSchema = z.object({
+  fullName: z.string().min(1).max(120),
+  colegiado: z.string().min(1).max(40),
+  title: TITLE.optional(),
+});
+
+export const updateAnesthesiologistSchema = z.object({
+  fullName: z.string().min(1).max(120).optional(),
+  colegiado: z.string().min(1).max(40).optional(),
+  title: TITLE.optional(),
+});
+
+export const changePinSchema = z.object({
+  currentPin: z.string().regex(/^\d{4,6}$/),
+  newPin: z.string().regex(/^\d{4,6}$/),
+});
+
+export const signCaseSchema = z.object({
+  anesthesiologistId: z.string().min(1),
+  pin: z.string().regex(/^\d{4,6}$/),
 });
