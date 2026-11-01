@@ -35,7 +35,13 @@ casesRouter.post("/", csrfGuard, async (req, res) => {
     const activo = await cases.activeByOwner(u.id);
     if (activo) {
       audit({ userId: u.id, username: u.username, action: "CASE_CREATE_BLOCKED", targetType: "case", targetId: activo.ia, ip: req.ip, success: false });
-      res.status(409).json({ error: `Ya tienes un caso activo (${activo.ia}). Ciérralo antes de crear otro.`, code: "ACTIVE_CASE_EXISTS", ia: activo.ia });
+      res.status(409).json({
+        error: `Ya tienes un caso activo (${activo.ia}). Ciérralo antes de crear otro.`,
+        code: "ACTIVE_CASE_EXISTS",
+        ia: activo.ia,
+        caseId: activo.case_id,
+        createdAt: activo.created_at,
+      });
       return;
     }
   }

@@ -17,6 +17,8 @@ export function Home({ onOpen, onToast }: Props) {
   const canWrite = useStore((s) => s.canWrite);
   const settings = useStore((s) => s.settings);
   const [creating, setCreating] = useState(false);
+  // Aviso C2: ya hay un caso activo en esta cuenta (quirófano/endoscopias).
+  const [activeWarn, setActiveWarn] = useState<{ ia: string; caseId: string; createdAt: string } | null>(null);
   // En partos, el tipo por defecto es "Analgesia de parto".
   const defaultType: CaseType =
     (user.location ?? "").toLowerCase().includes("parto") || user.username === "partos" ? "analgesia_parto" : "quirofano";
@@ -33,8 +35,14 @@ export function Home({ onOpen, onToast }: Props) {
       if (id) onOpen(id);
       else onToast("No se pudo crear el caso (necesitas conexión)");
     } catch (e) {
-      // C2: ya hay un caso activo en esta cuenta (quirófano/endoscopias).
-      onToast(e instanceof ApiError ? e.message : "No se pudo crear el caso");
+      // C2: ya hay un caso activo en esta cuenta (quirófano/endoscopias). Se ofrece abrirlo.
+      if (e instanceof ApiError && e.code === "ACTIVE_CASE_EXISTS") {
+        const d = e.data as { ia?: string; caseId?: string; createdAt?: string } | undefined;
+        if (d?.caseId && d.ia && d.createdAt) setActiveWarn({ ia: d.ia, caseId: d.caseId, createdAt: d.createdAt });
+        else onToast(e.message);
+      } else {
+        onToast(e instanceof ApiError ? e.message : "No se pudo crear el caso");
+      }
     } finally {
       setCreating(false);
     }
@@ -120,6 +128,29 @@ export function Home({ onOpen, onToast }: Props) {
       <button className="btn primary block lg" onClick={newCase} disabled={creating}>
         {creating ? "Creando..." : newType === "analgesia_parto" ? "+ Nueva analgesia de parto" : "+ Nuevo procedimiento"}
       </button>
+
+      {activeWarn && (
+        <div className="alert" style={{ marginTop: 10 }}>
+          <div style={{ marginBottom: 8 }}>
+            Ya tienes un caso activo: <strong>Hoja {activeWarn.ia}</strong> · inicio {hhmm(activeWarn.createdAt)} ({dmy(activeWarn.createdAt)}). Ciérralo antes de crear otro.
+          </div>
+          <div className="grid2">
+            <button className="btn lg" onClick={() => setActiveWarn(null)}>
+              Cancelar
+            </button>
+            <button
+              className="btn primary lg"
+              onClick={() => {
+                const id = activeWarn.caseId;
+                setActiveWarn(null);
+                onOpen(id);
+              }}
+            >
+              Abrir el caso anterior
+            </button>
+          </div>
+        </div>
+      )}
       <p className="sub" style={{ textAlign: "center", marginTop: 8 }}>
         Se generará automáticamente un Identificador Anestésico (IA).{" "}
         {defaultType === "analgesia_parto"
