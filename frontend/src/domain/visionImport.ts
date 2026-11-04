@@ -38,10 +38,76 @@ const SYNONYMS: Record<string, string> = {
 const BUCKET_MS = 5 * 60 * 1000;
 
 export interface VisionReading {
-  hora: string; // "HH:MM"
+  hora: string; // "HH:MM" (en la TA, la hora de MEDICIÓN de la celda)
+  parametro: string;
+  valor: number | string; // número; o texto "124/55(74)" para la tensión arterial
+  unidad?: string;
+}
+
+// Códigos que componen una tensión arterial (para avisos y detección).
+export const BP_COMPONENT_CODES = ["TAS", "TAD", "TAM", "PAIS", "PAID", "PAIM"];
+const BP_NONINV = /^(pani|pni|nibp|ta|nbp)\b/i; // no invasiva
+const BP_INV = /^(pa|art|abp|ibp)\b/i; // invasiva/arterial
+
+/** ¿La etiqueta es una tensión arterial compuesta (no un componente ya desglosado)? */
+export function isBpParam(raw: string): boolean {
+  const p = (raw ?? "").trim();
+  return BP_NONINV.test(p) || BP_INV.test(p);
+}
+
+/** Desglosa "124/55(74)" (o "124/55 (74)", o "124/55") en sistólica, diastólica y media. */
+export function parseBp(text: string): { sys: number; dia: number; mean?: number } | null {
+  const m = /(\d{2,3})\s*\/\s*(\d{2,3})(?:\s*\(\s*(\d{2,3})\s*\))?/.exec(text ?? "");
+  if (!m) return null;
+  const sys = Number(m[1]);
+  const dia = Number(m[2]);
+  const mean = m[3] != null ? Number(m[3]) : undefined;
+  if (!isFinite(sys) || !isFinite(dia)) return null;
+  return mean != null && isFinite(mean) ? { sys, dia, mean } : { sys, dia };
+}
+
+interface NormReading {
+  hora: string;
   parametro: string;
   valor: number;
   unidad?: string;
+}
+
+/**
+ * Normaliza las lecturas de la foto antes de volcarlas:
+ *  - La tensión arterial llega como texto ("124/55(74)") en una sola lectura con SU hora de
+ *    medición; aquí se desglosa en TAS/TAD/TAM (o PAIS/PAID/PAIM si es invasiva), cada una con
+ *    esa hora de medición. Se DEDUPLICA una misma medición (misma vía + misma hora) aunque
+ *    Claude la repita en varias filas/columnas.
+ *  - El resto de lecturas (numéricas) pasan tal cual; las no numéricas no-TA se descartan.
+ */
+export function normalizeReadings(readings: VisionReading[]): NormReading[] {
+  const out: NormReading[] = [];
+  const seenBp = new Set<string>();
+  for (const r of readings) {
+    if (isBpParam(r.parametro) && typeof r.valor !== "number") {
+      const bp = parseBp(String(r.valor));
+      if (!bp) continue;
+      const inv = BP_INV.test(r.parametro);
+      const key = `${inv ? "INV" : "NI"}|${r.hora}|${bp.sys}/${bp.dia}`;
+      if (seenBp.has(key)) continue; // no duplicar la misma medición arrastrada
+      seenBp.add(key);
+      const [cS, cD, cM] = inv ? ["PAIS", "PAID", "PAIM"] : ["TAS", "TAD", "TAM"];
+      out.push({ hora: r.hora, parametro: cS, valor: bp.sys, unidad: "mmHg" });
+      out.push({ hora: r.hora, parametro: cD, valor: bp.dia, unidad: "mmHg" });
+      if (bp.mean != null) out.push({ hora: r.hora, parametro: cM, valor: bp.mean, unidad: "mmHg" });
+      continue;
+    }
+    const n = typeof r.valor === "number" ? r.valor : Number(String(r.valor).replace(",", "."));
+    if (!isFinite(n)) continue;
+    out.push({ hora: r.hora, parametro: r.parametro, valor: n, unidad: r.unidad });
+  }
+  return out;
+}
+
+/** ¿La foto traía tensión arterial (compuesta o ya desglosada)? Para el aviso de TA. */
+export function readingsIncludeBp(readings: VisionReading[]): boolean {
+  return readings.some((r) => isBpParam(r.parametro) || BP_COMPONENT_CODES.includes(normalizeCode(r.parametro).code));
 }
 
 export interface ReviewItem {
@@ -105,7 +171,9 @@ function existingIndex(vitals: VitalsRecord[]) {
 export function buildReview(readings: VisionReading[], cs: CaseState, shiftMin = 0): ReviewItem[] {
   const { manual, photo } = existingIndex(cs.vitals);
   const items: ReviewItem[] = [];
-  readings.forEach((r, i) => {
+  // Desglosa la TA y normaliza a lecturas numéricas antes de construir la tabla.
+  const norm = normalizeReadings(readings);
+  norm.forEach((r, i) => {
     if (isIgnoredParam(r.parametro)) return; // FP / subtítulos no se vuelcan
     const epoch = timeToEpoch(r.hora, cs.createdAt, shiftMin);
     if (epoch == null) return;

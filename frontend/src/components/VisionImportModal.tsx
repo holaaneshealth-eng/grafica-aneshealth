@@ -4,7 +4,7 @@ import { useStore } from "../store/store";
 import { api, ApiError } from "../api";
 import type { CaseState } from "../domain/events";
 import { formatNum } from "../domain/calculations";
-import { buildReview, buildVitalsToWrite, type ReviewItem, type VisionReading } from "../domain/visionImport";
+import { buildReview, buildVitalsToWrite, readingsIncludeBp, BP_COMPONENT_CODES, type ReviewItem, type VisionReading } from "../domain/visionImport";
 import { compressMonitorPhoto } from "../vision/compress";
 
 interface Props {
@@ -14,6 +14,8 @@ interface Props {
   // Imágenes ya guardadas (Vía 1) para analizar al cambiar a Vía 2. Si se pasan, el modal
   // omite la captura y analiza directamente estas fotos.
   initialImages?: { dataUrl: string; mime: string }[];
+  // Al fallar el análisis, permite guardar esa MISMA foto por la Vía 1 (sin repetirla).
+  onSaveAsVia1?: (file: File) => void;
 }
 
 type Phase = "capture" | "processing" | "review";
@@ -39,7 +41,7 @@ function describeError(err: unknown): string {
   return String(err);
 }
 
-export function VisionImportModal({ cs, onClose, onDone, initialImages }: Props) {
+export function VisionImportModal({ cs, onClose, onDone, initialImages, onSaveAsVia1 }: Props) {
   const append = useStore((s) => s.append);
   const [phase, setPhase] = useState<Phase>(initialImages && initialImages.length ? "processing" : "capture");
   const [readings, setReadings] = useState<VisionReading[]>([]);
@@ -47,18 +49,25 @@ export function VisionImportModal({ cs, onClose, onDone, initialImages }: Props)
   const [shiftMin, setShiftMin] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [taWarn, setTaWarn] = useState<string | null>(null);
   const [dateWarn, setDateWarn] = useState<string | null>(null);
   const [customFor, setCustomFor] = useState<Record<string, boolean>>({});
+  // Última foto capturada en este modal (para "Guardar como imagen (vía 1)" si falla).
+  const [lastFile, setLastFile] = useState<File | null>(null);
 
   function toReview(got: VisionReading[], detectedDate: string | null) {
     const caseDate = new Date(cs.createdAt).toLocaleDateString("sv-SE");
     setDateWarn(detectedDate && detectedDate !== caseDate ? `La fecha del monitor (${detectedDate}) no coincide con la del caso (${caseDate}). Las columnas se fechan con la del caso; revisa las horas.` : null);
     setReadings(got);
-    setItems(buildReview(got, cs, 0));
+    const built = buildReview(got, cs, 0);
+    setItems(built);
     setShiftMin(0);
     setCustomFor({});
     setPhase("review");
-    if (got.length === 0) setNote("No se ha leído ningún valor con seguridad. Prueba con una foto más nítida o registra a mano.");
+    // Aviso de tensión arterial: la foto traía TA pero no se ha podido desglosar ninguna.
+    const gotBp = built.some((it) => BP_COMPONENT_CODES.includes(it.code));
+    setTaWarn(readingsIncludeBp(got) && !gotBp ? "No se ha leído la tensión arterial: revísala o añádela a mano." : null);
+    if (got.length === 0) setNote("No se ha leído ningún valor con seguridad. Repite la foto, guárdala por la Vía 1 (imagen) o registra a mano.");
   }
 
   async function analyze(images: { dataUrl: string; mime: string }[]) {
@@ -89,6 +98,7 @@ export function VisionImportModal({ cs, onClose, onDone, initialImages }: Props)
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    setLastFile(file); // por si el análisis falla y se quiere guardar por la Vía 1
     setError(null);
     setPhase("processing");
     try {
@@ -153,9 +163,21 @@ export function VisionImportModal({ cs, onClose, onDone, initialImages }: Props)
             La foto se envía al servidor y a Claude (Haiku 4.5) para leer la tabla; <strong>no se guarda</strong>. Revisarás los valores antes de volcarlos.
           </p>
           <p className="sub">
-            Fotografía la pantalla de <strong>tendencias tabulares</strong> (columnas cada 5 min), de frente y sin reflejos.
+            Vale la pantalla de <strong>tendencias tabulares</strong> del monitor o la <strong>vista previa de impresión</strong> de ese informe (muchas columnas). De frente y sin reflejos.
           </p>
           {error && <div className="alert danger">{error}</div>}
+          {error && lastFile && onSaveAsVia1 && (
+            <button
+              className="btn block lg"
+              style={{ marginBottom: 8 }}
+              onClick={() => {
+                onSaveAsVia1(lastFile);
+                onClose();
+              }}
+            >
+              Guardar esta foto como imagen (vía 1)
+            </button>
+          )}
           <label className="btn primary block lg" style={{ textAlign: "center", cursor: "pointer" }}>
             Abrir cámara / elegir foto
             <input type="file" accept="image/*" capture="environment" onChange={onFile} style={{ display: "none" }} />
@@ -172,6 +194,7 @@ export function VisionImportModal({ cs, onClose, onDone, initialImages }: Props)
       {phase === "review" && (
         <>
           {dateWarn && <div className="alert danger">{dateWarn}</div>}
+          {taWarn && <div className="alert danger">{taWarn}</div>}
           {note && <div className="alert">{note}</div>}
           <div className="row" style={{ alignItems: "flex-end" }}>
             <div className="field" style={{ flex: 1 }}>
