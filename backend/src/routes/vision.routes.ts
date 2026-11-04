@@ -23,20 +23,35 @@ const bodySchema = z.object({
 // Vocabulario de parámetros que el programa entiende (debe coincidir con monitoring.ts).
 const KNOWN = ["FC", "TAS", "TAD", "TAM", "PAIS", "PAID", "PAIM", "SPO2", "ETCO2", "FICO2", "FR", "PVC", "BIS", "TEMP", "VT", "PEEP", "FIO2", "PPICO", "CAM"];
 
-const PROMPT = `Eres un lector de pantallas de monitor de anestesia (Mindray ePM) en su vista de TENDENCIAS TABULARES (una columna por hora, normalmente cada 5 minutos).
+const PROMPT = `Eres un lector de las TENDENCIAS TABULARES de un monitor de anestesia (Mindray ePM/BeneVision). Debes aceptar DOS formatos equivalentes:
+  (A) la pantalla "Tend. tabulares" del monitor (pocas columnas), y
+  (B) la VISTA PREVIA DE IMPRESIÓN del informe de tendencias tabulares: una hoja con MUCHAS más columnas y, a veces, cabecera de informe (nombre, fecha, nº de página).
+Ambos formatos son válidos y se leen igual: una rejilla de parámetros (filas) por instantes de tiempo (columnas).
+
 Devuelve EXCLUSIVAMENTE un objeto JSON (sin texto, sin markdown, sin explicaciones):
 {"fecha":"YYYY-MM-DD" o null, "lecturas":[{"hora":"HH:MM","parametro":"CODIGO","valor":numero,"unidad":"texto"}]}
-Reglas:
-- "fecha": la fecha de la cabecera del monitor si aparece; si no, null.
+
+Comprobación de pantalla válida:
+- Solo son válidas las tendencias tabulares (formato A o B). Si la imagen es OTRA cosa (monitorización en tiempo real con curvas/ondas, menús, configuración, una sola columna de cifras grandes, etc.), devuelve {"fecha":null,"lecturas":[]}.
+- La vista previa de impresión del informe de tendencias tabulares (B) SIEMPRE se considera válida, aunque tenga muchas columnas o cabeceras de informe.
+
+Cómo leer la rejilla (MUY IMPORTANTE: no confundas filas ni columnas):
+- El tiempo está en las CABECERAS DE COLUMNA (HH:MM). Lee TODAS las columnas, de izquierda a derecha, sin saltarte ninguna (en el formato B pueden ser muchas y con intervalos pequeños, p. ej. cada 1 o 5 min).
+- Cada FILA es un parámetro (su etiqueta está a la izquierda). El valor de una celda pertenece al parámetro de SU fila y a la hora de SU columna.
+- Alinea con cuidado celda por celda respetando las líneas de la rejilla. Si una celda está vacía, con "---" o ilegible, OMÍTELA; NUNCA desplaces un valor a otra fila o columna para rellenar huecos.
+- En la vista de impresión los parámetros pueden ir agrupados en bloques (p. ej. Hemodinámica, Respiratorio, Gases): procésalos todos.
+
+Reglas de mapeo (iguales en A y B):
 - Usa EXACTAMENTE estos códigos cuando corresponda: ${KNOWN.join(", ")}.
 - Tensión arterial NO invasiva (etiquetas Mindray: PANI, PNI, NIBP): sistólica -> TAS, diastólica -> TAD, media (entre paréntesis) -> TAM.
 - Tensión arterial INVASIVA / arterial (etiquetas Mindray: PA, ART, ABP, IBP): sistólica -> PAIS, diastólica -> PAID, media (entre paréntesis) -> PAIM.
 - Temperatura (T1, T2) -> TEMP. Frecuencia respiratoria (FR) -> FR. CO2 espirado -> ETCO2; CO2 inspirado -> FICO2. Presión venosa central (PVC) -> PVC. BIS -> BIS. Presión pico de la vía aérea -> PPICO. CAM/MAC del halogenado -> CAM.
-- IGNORA (no las incluyas): la "FP" (frecuencia de pulso, duplica la FC) y los subtítulos tipo "Origen: SpO2" y el sello de hora de la medición dentro de la celda.
+- IGNORA (no las incluyas): la "FP" (frecuencia de pulso, duplica la FC), los subtítulos tipo "Origen: SpO2" y el sello de hora de la medición DENTRO de una celda (la hora buena es la de la cabecera de la columna).
+- "fecha": la de la cabecera (del monitor o del informe) si aparece; si no, null.
+- "valor" numérico (punto decimal). "hora" en 24h HH:MM tal como aparece en la cabecera de su columna.
 - Incluye una lectura SOLO si puedes leerla con seguridad. Si dudas de un valor, OMÍTELO.
-- "valor" numérico (punto decimal). "hora" en 24h HH:MM tal como aparece.
 - Si ves un parámetro que NO está en la lista, inclúyelo con su etiqueta tal cual en "parametro".
-- No inventes columnas ni valores que no estén en la imagen.`;
+- No inventes columnas, horas ni valores que no estén en la imagen.`;
 
 export interface VisionReading {
   hora: string;
@@ -86,7 +101,9 @@ visionRouter.post("/import", async (req, res, next) => {
       },
       body: JSON.stringify({
         model: config.vision.model,
-        max_tokens: 2000,
+        // La vista previa de impresión (formato B) tiene muchas más columnas -> muchas más
+        // lecturas; se amplía el límite para que la respuesta JSON no se trunque.
+        max_tokens: 8000,
         temperature: 0,
         messages: [
           {
