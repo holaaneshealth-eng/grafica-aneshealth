@@ -176,6 +176,9 @@ export function MonitorCapture({ cs, onToast }: Props) {
             {via === 1 && claudeAvailable && (
               <button className="chip" disabled={busy} onClick={() => chooseVia(2)}>Cambiar a Vía 2 (análisis)</button>
             )}
+            {via === 2 && photosEnabled && (
+              <button className="chip" disabled={busy} onClick={() => chooseVia(1)}>Cambiar a Vía 1 (imagen)</button>
+            )}
           </div>
 
           {via === 1 ? (
@@ -249,6 +252,13 @@ export function MonitorCapture({ cs, onToast }: Props) {
           onDone={(m) => {
             onToast?.(m);
             setVision(null);
+          }}
+          onSaveAsVia1={(file) => {
+            // El análisis falló: guardamos esa misma foto por la Vía 1 (recorte + compresión
+            // habituales) y pasamos el caso a Vía 1 para que la imagen vaya al PDF.
+            setVision(null);
+            if (cs.monitorVia !== 1) append(cs.caseId, "MONITOR_MODE_SET", { via: 1 });
+            setCropFile(file);
           }}
         />
       )}

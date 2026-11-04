@@ -172,7 +172,7 @@ export const api = {
       "/cases/retention-preview",
     ),
   visionImport: (payload: { imageBase64: string; mimeType: string }) =>
-    request<{ readings: { hora: string; parametro: string; valor: number; unidad?: string }[]; fecha?: string | null }>("/vision/import", "POST", payload),
+    request<{ readings: { hora: string; parametro: string; valor: number | string; unidad?: string }[]; fecha?: string | null }>("/vision/import", "POST", payload),
 
   listCustomDrugs: () => request<{ drugs: ApiCustomDrug[] }>("/custom-drugs"),
   addCustomDrug: (d: ApiCustomDrug) => request<{ drug: ApiCustomDrug; deduped?: boolean }>("/custom-drugs", "POST", d),

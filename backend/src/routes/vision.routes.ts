@@ -23,25 +23,42 @@ const bodySchema = z.object({
 // Vocabulario de parámetros que el programa entiende (debe coincidir con monitoring.ts).
 const KNOWN = ["FC", "TAS", "TAD", "TAM", "PAIS", "PAID", "PAIM", "SPO2", "ETCO2", "FICO2", "FR", "PVC", "BIS", "TEMP", "VT", "PEEP", "FIO2", "PPICO", "CAM"];
 
-const PROMPT = `Eres un lector de pantallas de monitor de anestesia (Mindray ePM) en su vista de TENDENCIAS TABULARES (una columna por hora, normalmente cada 5 minutos).
+const PROMPT = `Eres un lector de las TENDENCIAS TABULARES de un monitor de anestesia (Mindray ePM/BeneVision). Acepta DOS presentaciones:
+  (A) la PANTALLA "Tend. tabulares" del monitor: el TIEMPO va en las CABECERAS DE COLUMNA (HH:MM) y cada parámetro es una FILA (etiqueta a la izquierda).
+  (B) la VISTA PREVIA DE IMPRESIÓN del informe de tendencias tabulares: aquí suele ir AL REVÉS: el TIEMPO va en FILAS (una fila por instante, HH:MM a la izquierda) y cada parámetro es una COLUMNA (etiqueta en la cabecera superior). Puede haber muchas filas y columnas y cabecera de informe (nombre, fecha, nº de página).
+Ambas son válidas. Detecta la orientación mirando dónde están las horas HH:MM: si encabezan columnas es (A); si encabezan filas es (B).
+
 Devuelve EXCLUSIVAMENTE un objeto JSON (sin texto, sin markdown, sin explicaciones):
-{"fecha":"YYYY-MM-DD" o null, "lecturas":[{"hora":"HH:MM","parametro":"CODIGO","valor":numero,"unidad":"texto"}]}
-Reglas:
-- "fecha": la fecha de la cabecera del monitor si aparece; si no, null.
-- Usa EXACTAMENTE estos códigos cuando corresponda: ${KNOWN.join(", ")}.
-- Tensión arterial NO invasiva (etiquetas Mindray: PANI, PNI, NIBP): sistólica -> TAS, diastólica -> TAD, media (entre paréntesis) -> TAM.
-- Tensión arterial INVASIVA / arterial (etiquetas Mindray: PA, ART, ABP, IBP): sistólica -> PAIS, diastólica -> PAID, media (entre paréntesis) -> PAIM.
-- Temperatura (T1, T2) -> TEMP. Frecuencia respiratoria (FR) -> FR. CO2 espirado -> ETCO2; CO2 inspirado -> FICO2. Presión venosa central (PVC) -> PVC. BIS -> BIS. Presión pico de la vía aérea -> PPICO. CAM/MAC del halogenado -> CAM.
-- IGNORA (no las incluyas): la "FP" (frecuencia de pulso, duplica la FC) y los subtítulos tipo "Origen: SpO2" y el sello de hora de la medición dentro de la celda.
-- Incluye una lectura SOLO si puedes leerla con seguridad. Si dudas de un valor, OMÍTELO.
-- "valor" numérico (punto decimal). "hora" en 24h HH:MM tal como aparece.
+{"fecha":"YYYY-MM-DD" o null, "lecturas":[{"hora":"HH:MM","parametro":"CODIGO","valor":numero_o_texto,"unidad":"texto"}]}
+Cada "lectura" es el cruce de UN parámetro con UN instante de tiempo (su HH:MM), venga el tiempo de una columna (A) o de una fila (B). No confundas filas con columnas: respeta la rejilla celda a celda.
+
+Comprobación de pantalla válida:
+- Solo son válidas las tendencias tabulares (A o B). Si la imagen es otra cosa (monitorización en tiempo real con curvas/ondas, menús, configuración, una sola cifra grande…), devuelve {"fecha":null,"lecturas":[]}.
+- La vista previa de impresión (B) SIEMPRE es válida, aunque tenga muchas columnas/filas o cabeceras de informe.
+
+Tensión arterial (regla especial, MUY IMPORTANTE):
+- La TA se mide de forma intermitente y su celda suele llevar SU PROPIA HORA de medición (p. ej. "124/55(74) 17:35" en la fila/columna de las 17:40).
+- Para la TA emite UNA sola lectura por medición: "parametro" = "PANI" (no invasiva: PANI/PNI/NIBP) o "PA" (invasiva: PA/ART/ABP/IBP); "valor" = el TEXTO exacto "sistolica/diastolica(media)", p. ej. "124/55(74)"; "hora" = la HORA DE MEDICIÓN de la propia celda (NO la de la fila/columna). Si la celda no trae hora propia, usa la del eje.
+- NO repitas una misma medición de TA aunque aparezca arrastrada en varias filas/columnas: emítela UNA sola vez, en su hora de medición.
+
+Resto de parámetros:
+- "valor" NUMÉRICO (punto decimal). Usa EXACTAMENTE estos códigos cuando corresponda: ${KNOWN.join(", ")}.
+- SpO2 -> SPO2. FC -> FC. Temperatura (T1, T2) -> TEMP. FR -> FR. CO2 espirado -> ETCO2; CO2 inspirado -> FICO2. PVC -> PVC. BIS -> BIS. Presión pico vía aérea -> PPICO. CAM/MAC del halogenado -> CAM.
+- IGNORA la "FP" (frecuencia de pulso, duplica la FC) y los subtítulos tipo "Origen: SpO2".
+- Las cifras RESALTADAS o sombreadas (en negro, amarillo o rojo) son valores EN ALARMA: léelas IGUAL que las demás, no las descartes.
+- Los guiones "--" (o celda vacía) significan SIN DATO: omítelos.
 - Si ves un parámetro que NO está en la lista, inclúyelo con su etiqueta tal cual en "parametro".
-- No inventes columnas ni valores que no estén en la imagen.`;
+
+Generales:
+- "fecha": la de la cabecera (del monitor o del informe) si aparece; si no, null.
+- "hora" en 24h HH:MM. Incluye una lectura SOLO si la lees con seguridad; ante la duda, omítela. No inventes filas, columnas, horas ni valores.`;
 
 export interface VisionReading {
   hora: string;
   parametro: string;
-  valor: number;
+  // Número para la mayoría; texto para la tensión arterial ("124/55(74)"), que se
+  // desglosa en el cliente en sistólica/diastólica/media.
+  valor: number | string;
   unidad?: string;
 }
 
@@ -86,7 +103,9 @@ visionRouter.post("/import", async (req, res, next) => {
       },
       body: JSON.stringify({
         model: config.vision.model,
-        max_tokens: 2000,
+        // La vista previa de impresión (formato B) tiene muchas más columnas -> muchas más
+        // lecturas; se amplía el límite para que la respuesta JSON no se trunque.
+        max_tokens: 8000,
         temperature: 0,
         messages: [
           {
@@ -117,8 +136,18 @@ visionRouter.post("/import", async (req, res, next) => {
       return;
     }
 
-    const result = (await resp.json()) as { content?: { type: string; text?: string }[] };
+    const result = (await resp.json()) as { content?: { type: string; text?: string }[]; stop_reason?: string };
     const text = (result.content ?? []).filter((c) => c.type === "text").map((c) => c.text ?? "").join("\n");
+
+    // Diagnóstico (NUNCA la imagen): motivo de parada y respuesta en bruto. Si stop_reason es
+    // "max_tokens" la respuesta viene cortada (subir max_tokens).
+    // eslint-disable-next-line no-console
+    console.log(`[vision] stop_reason=${result.stop_reason ?? "?"} textLen=${text.length}`);
+    // eslint-disable-next-line no-console
+    console.log("[vision] respuesta en bruto:", text.slice(0, 4000));
+
+    // Etiquetas de tensión arterial: su valor llega como texto ("124/55(74)"), no numérico.
+    const isBpLabel = (p: string) => /^(pani|pni|nibp|ta|nbp|pa|art|abp|ibp)\b/i.test(p);
 
     let readings: VisionReading[] = [];
     let fecha: string | null = null;
@@ -129,12 +158,23 @@ visionRouter.post("/import", async (req, res, next) => {
       if (obj && !Array.isArray(parsed) && typeof obj.fecha === "string") fecha = obj.fecha;
       readings = arr
         .map((r) => r as Record<string, unknown>)
-        .filter((r) => r && typeof r.hora === "string" && typeof r.parametro === "string" && r.valor != null && isFinite(Number(r.valor)))
-        .map((r) => ({ hora: String(r.hora), parametro: String(r.parametro).trim(), valor: Number(r.valor), unidad: r.unidad != null ? String(r.unidad) : undefined }));
+        .filter((r) => r && typeof r.hora === "string" && typeof r.parametro === "string" && r.valor != null)
+        .map((r) => {
+          const parametro = String(r.parametro).trim();
+          const n = Number(r.valor);
+          // Numérico si se puede; si no (TA "124/55(74)", etc.) se conserva el texto.
+          const valor: number | string = isFinite(n) && String(r.valor).trim() !== "" ? n : String(r.valor).trim();
+          return { hora: String(r.hora), parametro, valor, unidad: r.unidad != null ? String(r.unidad) : undefined };
+        })
+        // Numéricos: finitos. Texto: solo se conserva para la TA (y debe contener algún dígito).
+        .filter((r) => (typeof r.valor === "number" ? isFinite(r.valor) : isBpLabel(r.parametro) && /\d/.test(r.valor)));
     } catch {
       // eslint-disable-next-line no-console
-      console.error("[vision] no se pudo interpretar la respuesta del modelo");
-      res.status(502).json({ error: "No se pudo interpretar la lectura de la foto. Prueba con una foto más nítida." });
+      console.error("[vision] no se pudo interpretar la respuesta del modelo. stop_reason=", result.stop_reason);
+      res.status(502).json({
+        error: "No se pudo leer la tabla de la foto. Repite la foto, guárdala por la Vía 1 (imagen) o registra las constantes a mano.",
+        code: "VISION_UNREADABLE",
+      });
       return;
     }
 
